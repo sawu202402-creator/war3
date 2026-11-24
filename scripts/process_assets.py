@@ -1103,6 +1103,181 @@ def build_derived_raster_fx(assets_dir: Path, raw_dir: Path) -> None:
     plaque.save(out("ui_zone_plaque.png"), optimize=True)
 
 
+def _smoothstep(t: float) -> float:
+    t = max(0.0, min(1.0, t))
+    return t * t * (3.0 - 2.0 * t)
+
+
+def _sample_premul_bilinear(spx, cw: int, ch: int, x: float, y: float) -> tuple[int, int, int, int]:
+    if x < 0 or x >= cw - 1 or y < 0 or y >= ch - 1:
+        ix, iy = int(round(x)), int(round(y))
+        if 0 <= ix < cw and 0 <= iy < ch:
+            return spx[ix, iy]
+        return (0, 0, 0, 0)
+    x0, y0 = int(math.floor(x)), int(math.floor(y))
+    fx, fy = x - x0, y - y0
+    c00, c10, c01, c11 = spx[x0, y0], spx[x0 + 1, y0], spx[x0, y0 + 1], spx[x0 + 1, y0 + 1]
+    w00, w10, w01, w11 = (1.0 - fx) * (1.0 - fy), fx * (1.0 - fy), (1.0 - fx) * fy, fx * fy
+    pa = c00[3] * w00 + c10[3] * w10 + c01[3] * w01 + c11[3] * w11
+    if pa < 2.0:
+        return (0, 0, 0, 0)
+    return (
+        min(255, int(round((c00[0] * c00[3] * w00 + c10[0] * c10[3] * w10 + c01[0] * c01[3] * w01 + c11[0] * c11[3] * w11) / pa))),
+        min(255, int(round((c00[1] * c00[3] * w00 + c10[1] * c10[3] * w10 + c01[1] * c01[3] * w01 + c11[1] * c11[3] * w11) / pa))),
+        min(255, int(round((c00[2] * c00[3] * w00 + c10[2] * c10[3] * w10 + c01[2] * c01[3] * w01 + c11[2] * c11[3] * w11) / pa))),
+        min(255, int(round(pa))),
+    )
+
+
+def _render_q_chibi_canvas(
+    raw_cut: Image.Image,
+    head_fx: float,
+    head_fy: float,
+    head_end: float,
+    torso_end: float,
+    head_bulge: float,
+    head_rad: float,
+    pose: str = "idle",
+) -> Image.Image:
+    crop = ImageEnhance.Color(raw_cut.convert("RGBA")).enhance(1.16)
+    cw, ch = crop.size
+    spx = crop.load()
+
+    # True 2.1-head Q-chibi vertical spline: head/shoulders 57%, torso 24%, legs/boots 19%
+    dst_h, dst_t = 0.57, 0.81
+    N = 256
+    slopes = []
+    for i in range(N):
+        v = i / (N - 1)
+        s1 = head_end / dst_h
+        s2 = (torso_end - head_end) / (dst_t - dst_h)
+        s3 = (1.0 - torso_end) / (1.0 - dst_t)
+        w12 = _smoothstep((v - (dst_h - 0.12)) / 0.24)
+        w23 = _smoothstep((v - (dst_t - 0.12)) / 0.24)
+        slopes.append(s1 * (1.0 - w12) + s2 * w12 * (1.0 - w23) + s3 * w23)
+    lut = [0.0]
+    for sl in slopes[1:]:
+        lut.append(lut[-1] + sl)
+    tot = lut[-1]
+    lut = [x / tot for x in lut]
+
+    def map_y(vd: float) -> float:
+        if vd <= 0.0:
+            return vd * (head_end / dst_h)
+        if vd >= 1.0:
+            return 1.0 + (vd - 1.0) * ((1.0 - torso_end) / (1.0 - dst_t))
+        pos = vd * (N - 1)
+        i0 = int(pos)
+        f = pos - i0
+        return lut[i0] * (1.0 - f) + lut[min(N - 1, i0 + 1)] * f
+
+    work = 380
+    win_w, win_h = int(work * 1.62), int(work * 1.28)
+    warped = Image.new("RGBA", (win_w, win_h), (0, 0, 0, 0))
+    wpx = warped.load()
+    hx, hy = head_fx * (cw - 1), head_fy * (ch - 1)
+    rx, ry = head_rad * max(cw, ch), head_rad * 0.94 * max(cw, ch)
+    ox, oy = (win_w - work) * 0.5, (win_h - work) * 0.5
+
+    for yd in range(win_h):
+        vd = (yd - oy) / (work - 1)
+        if vd < -0.15 or vd > 1.15:
+            continue
+        vs = map_y(vd)
+        sy_base = vs * (ch - 1)
+        wb = _smoothstep((vs - (torso_end - 0.18)) / 0.28)
+        wm = 1.20 * (1.0 - wb) + 1.08 * wb
+
+        upper_k = 1.0 - _smoothstep((vd - 0.10) / 0.72)
+        boot_k = _smoothstep((vd - 0.74) / 0.24)
+
+        for xd in range(win_w):
+            ud = (xd - ox) / (work - 1)
+            side_k = _smoothstep((ud - 0.34) / 0.32)  # 0 = left/rear boot, 1 = right/lead boot
+            pose_dx = 0.0
+            pose_dy = 0.0
+            if pose == "walk1":
+                pose_dx = upper_k * (cw * 0.042)
+                pose_dy = boot_k * ((1.0 - side_k) * (ch * 0.055) - side_k * (ch * 0.015))
+            elif pose == "walk2":
+                pose_dx = upper_k * (cw * -0.025)
+                pose_dy = boot_k * (side_k * (ch * 0.055) - (1.0 - side_k) * (ch * 0.015))
+            elif pose == "attack":
+                pose_dx = upper_k * (cw * 0.088)
+                pose_dy = upper_k * (ch * -0.032)
+
+            sx_base = cw * 0.5 + (ud - 0.5) * cw / wm - pose_dx
+            sy_p = sy_base + pose_dy
+            dx, dy = (sx_base - hx) / rx, (sy_p - hy) / ry
+            r2 = dx * dx + dy * dy
+            if r2 < 1.0:
+                w = 0.5 * (1.0 + math.cos(math.pi * math.sqrt(r2)))
+                sk = 1.0 / (1.0 + head_bulge * w)
+                sx, sy = hx + (sx_base - hx) * sk, hy + (sy_p - hy) * sk * 0.94
+            else:
+                sx, sy = sx_base, sy_p
+            if -0.5 <= sx <= cw - 0.5 and -0.5 <= sy <= ch - 0.5:
+                wpx[xd, yd] = _sample_premul_bilinear(spx, cw, ch, sx, sy)
+
+    return warped
+
+
+def process_q_chibi_hero_set(
+    src_raw: str,
+    dst_td: str,
+    dst_anims: list[str],
+    head_fx: float,
+    head_fy: float,
+    head_end: float,
+    torso_end: float,
+    head_bulge: float,
+    head_rad: float,
+    clear_interior_white: bool = False,
+) -> None:
+    """Build Q-chibi hero_td & 4 foot-aligned hero_anim frames directly from hi-res AI artwork."""
+    raw_im = Image.open(src_raw)
+    raw_cut = extract_cutout_rgba(raw_im, clear_interior_white=clear_interior_white)
+
+    idle_canvas = _render_q_chibi_canvas(raw_cut, head_fx, head_fy, head_end, torso_end, head_bulge, head_rad, "idle")
+    wb = idle_canvas.getbbox()
+    if not wb:
+        return
+    # Fixed reference bbox with small motion padding so legs/weapon never recenter across frames
+    pad = 26
+    rx0 = max(0, wb[0] - pad)
+    ry0 = max(0, wb[1] - pad)
+    rx1 = min(idle_canvas.width, wb[2] + pad)
+    ry1 = min(idle_canvas.height, wb[3] + pad)
+    tw, th = rx1 - rx0, ry1 - ry0
+
+    def place_on_square(canvas_im: Image.Image, out_size: int, boost: float = 1.0) -> Image.Image:
+        fig_crop = canvas_im.crop((rx0, ry0, rx1, ry1))
+        # Maintain tight scale vs actual opaque body bounds
+        bw, bh = wb[2] - wb[0], wb[3] - wb[1]
+        fit = min((out_size * 0.89) / max(1, bw), (out_size * 0.85) / max(1, bh))
+        nw = max(1, int(round(tw * fit)))
+        nh = max(1, int(round(th * fit)))
+        resized = fig_crop.resize((nw, nh), Image.Resampling.LANCZOS)
+        if boost != 1.0:
+            resized = ImageEnhance.Brightness(resized).enhance(boost)
+        out = Image.new("RGBA", (out_size, out_size), (0, 0, 0, 0))
+        foot_offset = int(round((ry1 - wb[3]) * fit))
+        px = (out_size - nw) // 2
+        py = int(out_size * 0.91) - (nh - foot_offset)
+        out.paste(resized, (px, py), resized)
+        return out
+
+    ensure_dir(dst_td)
+    place_on_square(idle_canvas, 176).save(dst_td, format="PNG", optimize=True)
+
+    for pose, dst in zip(["idle", "walk1", "walk2", "attack"], dst_anims):
+        ensure_dir(dst)
+        cv = idle_canvas if pose == "idle" else _render_q_chibi_canvas(
+            raw_cut, head_fx, head_fy, head_end, torso_end, head_bulge, head_rad, pose
+        )
+        place_on_square(cv, 192, boost=1.06 if pose == "attack" else 1.0).save(dst, format="PNG", optimize=True)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("mode", choices=["tile", "cutout", "sheet_cutout", "sheet_glow", "single_glow", "icon_grid", "banner"])

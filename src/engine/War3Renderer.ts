@@ -944,7 +944,7 @@ export class War3Renderer {
     }
 
     // 2. Dash / Ghost Afterimages
-    const drawSz = 82 * scale;
+    const drawSz = 90 * scale;
     for (const ghost of h.afterimages) {
       const gKey = `hero_anim_${h.classId}_${ghost.pose}`;
       const gSpr = IconAtlas.getSprite(gKey) || IconAtlas.getSprite(`hero_td_${h.classId}`);

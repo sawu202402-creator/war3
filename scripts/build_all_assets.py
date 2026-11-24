@@ -16,6 +16,7 @@ from process_assets import (
     process_cutout,
     process_hero_anim_sheet,
     process_icon_grid,
+    process_q_chibi_hero_set,
     process_sheet_cutout,
     process_sheet_glow,
     process_single_glow,
@@ -52,12 +53,11 @@ def main() -> None:
     for t in tiles:
         process_tile(latest(f"tile_{t}_raw"), out(f"tile_{t}.png"), size=256)
 
-    # 3. 5 Hero Portraits (full-bleed square 128x128) & 5 Hero Top-Down Cutouts (176x176)
+    # 3. 5 Hero Portraits (full-bleed square 128x128); Q-chibi map sprites built in section 9
     heroes = ["paladin", "blademaster", "archmage", "ranger", "priest"]
     for h in heroes:
         im = Image.open(latest(f"hero_{h}_raw")).convert("RGB").resize((128, 128), Image.Resampling.LANCZOS)
         im.save(out(f"hero_{h}.png"), format="PNG", optimize=True)
-        process_cutout(latest(f"hero_td_{h}_raw"), out(f"hero_td_{h}.png"), size=176, clear_interior_white=(h == "ranger"))
 
     # 4. 9 Major Bosses (240x240)
     bosses = [
@@ -203,19 +203,48 @@ def main() -> None:
         out("item_ex_ranger.png"), out("item_ex_priest.png"),
     ], cols=2, rows=2, size=112)
 
-    # 9. Hero 2x2 Action Animation Sprite Sheets (20 foot-anchored PNGs) & 5 Splash Key Arts
+    # 9. Q-Version (Chibi 2.1-head) Hero Map Sprites & Action Frames + 5 Splash Key Arts
+    q_specs = {
+        "paladin":     (0.55, 0.25, 0.34, 0.65, 0.56, 0.29),
+        "blademaster": (0.55, 0.37, 0.45, 0.72, 0.60, 0.24),
+        "archmage":    (0.49, 0.28, 0.39, 0.70, 0.56, 0.28),
+        "ranger":      (0.42, 0.28, 0.36, 0.66, 0.46, 0.25),
+        "priest":      (0.53, 0.27, 0.35, 0.68, 0.48, 0.25),
+    }
     for h in heroes:
-        process_hero_anim_sheet(
-            latest(f"hero_anim_{h}_raw"),
-            [
-                out(f"hero_anim_{h}_idle.png"),
-                out(f"hero_anim_{h}_walk1.png"),
-                out(f"hero_anim_{h}_walk2.png"),
-                out(f"hero_anim_{h}_attack.png"),
-            ],
-            size=192,
-            aggressive_magenta=(h == "priest"),
-        )
+        q_raw_matches = sorted(RAW_DIR.glob(f"hero_anim_{h}_q_raw_*.jpg")) + sorted(RAW_DIR.glob(f"hero_anim_{h}_q_raw_*.png"))
+        if q_raw_matches:
+            process_hero_anim_sheet(
+                str(q_raw_matches[-1]),
+                [
+                    out(f"hero_anim_{h}_idle.png"),
+                    out(f"hero_anim_{h}_walk1.png"),
+                    out(f"hero_anim_{h}_walk2.png"),
+                    out(f"hero_anim_{h}_attack.png"),
+                ],
+                size=192,
+                clear_interior_white=(h == "ranger"),
+            )
+            process_cutout(latest(f"hero_td_{h}_raw"), out(f"hero_td_{h}.png"), size=176, clear_interior_white=(h == "ranger"))
+        else:
+            fx, fy, he, te, hb, hr = q_specs[h]
+            process_q_chibi_hero_set(
+                latest(f"hero_td_{h}_raw"),
+                out(f"hero_td_{h}.png"),
+                [
+                    out(f"hero_anim_{h}_idle.png"),
+                    out(f"hero_anim_{h}_walk1.png"),
+                    out(f"hero_anim_{h}_walk2.png"),
+                    out(f"hero_anim_{h}_attack.png"),
+                ],
+                head_fx=fx,
+                head_fy=fy,
+                head_end=he,
+                torso_end=te,
+                head_bulge=hb,
+                head_rad=hr,
+                clear_interior_white=(h == "ranger"),
+            )
         process_splash(latest(f"splash_{h}_raw"), out(f"splash_{h}.jpg"), width=540, height=720)
 
     # 10. UI Stone Panel Texture, Ground Runic Auras, Dust & Derived Slash/Burst/Spark VFX

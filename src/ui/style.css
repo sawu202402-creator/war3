@@ -957,6 +957,14 @@ body {
   border: 1px solid rgba(148, 163, 184, 0.35);
   background-size: cover;
   background-position: center;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.hok-inv-dot img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 .hok-inv-dot.has-item {
   border-color: var(--war3-gold);
