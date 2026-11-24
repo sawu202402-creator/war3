@@ -10,12 +10,16 @@ from pathlib import Path
 from PIL import Image
 
 from process_assets import (
+    build_derived_raster_fx,
+    derive_tinted_glow,
     process_banner,
     process_cutout,
+    process_hero_anim_sheet,
     process_icon_grid,
     process_sheet_cutout,
     process_sheet_glow,
     process_single_glow,
+    process_splash,
     process_tile,
 )
 
@@ -199,12 +203,62 @@ def main() -> None:
         out("item_ex_ranger.png"), out("item_ex_priest.png"),
     ], cols=2, rows=2, size=112)
 
-    # 9. Audit completeness & cutout quality
+    # 9. Hero 2x2 Action Animation Sprite Sheets (20 foot-anchored PNGs) & 5 Splash Key Arts
+    for h in heroes:
+        process_hero_anim_sheet(
+            latest(f"hero_anim_{h}_raw"),
+            [
+                out(f"hero_anim_{h}_idle.png"),
+                out(f"hero_anim_{h}_walk1.png"),
+                out(f"hero_anim_{h}_walk2.png"),
+                out(f"hero_anim_{h}_attack.png"),
+            ],
+            size=192,
+            aggressive_magenta=(h == "priest"),
+        )
+        process_splash(latest(f"splash_{h}_raw"), out(f"splash_{h}.jpg"), width=540, height=720)
+
+    # 10. UI Stone Panel Texture, Ground Runic Auras, Dust & Derived Slash/Burst/Spark VFX
+    process_tile(latest("ui_stone_panel_raw"), out("ui_stone_panel.png"), size=256)
+    process_sheet_glow(
+        latest("sheet_auras_raw"),
+        [
+            out("fx_aura_paladin.png"),
+            out("fx_aura_arcane.png"),
+            out("fx_aura_wind.png"),
+            out("fx_dust_puff.png"),
+        ],
+        size=192,
+    )
+    derive_tinted_glow(out("fx_slash.png"), out("fx_swing_holy.png"), (1.28, 1.08, 0.52), size=192)
+    derive_tinted_glow(out("fx_slash.png"), out("fx_swing_blade.png"), (1.35, 0.52, 0.25), size=192)
+    derive_tinted_glow(out("fx_frost_burst.png"), out("fx_cast_burst.png"), (1.10, 1.15, 1.25), size=192, src2=out("fx_holy_ring.png"))
+    derive_tinted_glow(out("fx_explosion.png"), out("fx_hit_spark.png"), (1.35, 1.18, 0.72), size=160, src2=out("fx_frost_burst.png"))
+
+    # 10b. Generate 32-bit RGBA PWA App Icons from AI Paladin splash key art
+    public_dir = OUT_DIR.parent
+    splash_src = Image.open(latest("splash_paladin_raw")).convert("RGBA")
+    sw, sh = splash_src.size
+    side = min(sw, sh)
+    crop_box = ((sw - side) // 2, max(0, int((sh - side) * 0.16)), (sw + side) // 2, max(0, int((sh - side) * 0.16)) + side)
+    sq_icon = splash_src.crop(crop_box)
+    for icon_sz in (192, 512):
+        border = max(4, int(icon_sz * 0.04))
+        inner_sz = icon_sz - border * 2
+        framed = Image.new("RGBA", (icon_sz, icon_sz), (200, 162, 74, 255))
+        inner = sq_icon.resize((inner_sz, inner_sz), Image.Resampling.LANCZOS)
+        framed.paste(inner, (border, border), inner)
+        framed.save(str(public_dir / f"icon-{icon_sz}.png"), format="PNG", optimize=True)
+
+    # 10c. Build 100% raster VFX, rings, beams, shadows, feathered roads & plaza disc
+    build_derived_raster_fx(OUT_DIR, RAW_DIR)
+
+    # 11. Audit completeness & cutout quality
     files = sorted(OUT_DIR.glob("*"))
     total_bytes = sum(f.stat().st_size for f in files)
     bad_cutouts = []
     for f in files:
-        if f.name.startswith(("hero_td_", "enemy_", "struct_", "tower_", "prop_", "drop_", "fx_", "proj_", "summon_")) and not f.name.endswith("_ico.png"):
+        if f.name.startswith(("hero_td_", "hero_anim_", "enemy_", "struct_", "tower_", "prop_", "drop_", "fx_", "proj_", "summon_")) and not f.name.endswith("_ico.png"):
             im = Image.open(f).convert("RGBA")
             w, h = im.size
             c_alphas = [
@@ -222,7 +276,8 @@ def main() -> None:
                     if im.getpixel((x, y))[3] > 20:
                         opaque += 1
             ratio = opaque / max(1, total)
-            if max(c_alphas) > 15 or ratio < 0.08 or ratio > 0.96:
+            min_ratio = 0.015 if f.name.startswith(("fx_ring_", "fx_aim_", "fx_telegraph_", "fx_beam_", "fx_lightning_", "fx_target_", "fx_shield_", "fx_status_", "fx_plaza_")) else 0.05 if f.name.startswith("proj_") else 0.08
+            if max(c_alphas) > 15 or ratio < min_ratio or ratio > 0.96:
                 bad_cutouts.append((f.name, c_alphas, round(ratio, 3)))
 
     print(f"Processed {len(files)} assets -> {total_bytes / (1024*1024):.2f} MB")

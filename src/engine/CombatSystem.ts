@@ -220,6 +220,22 @@ export function addFloatingText(
   });
 }
 
+function pushDashAfterimages(hero: HeroEntity, fromX: number, fromY: number, toX: number, toY: number, steps = 4): void {
+  const flip = Math.cos(hero.facing) < 0 ? -1 : 1;
+  for (let i = 0; i < steps; i++) {
+    const t = i / steps;
+    hero.afterimages.push({
+      x: fromX + (toX - fromX) * t,
+      y: fromY + (toY - fromY) * t,
+      flip,
+      pose: i === steps - 1 ? 'attack' : 'walk1',
+      alpha: 0.22 + t * 0.22,
+      color: hero.color,
+    });
+  }
+  if (hero.afterimages.length > 10) hero.afterimages.splice(0, hero.afterimages.length - 10);
+}
+
 export function applyDamageToEnemy(
   world: GameWorldState,
   enemy: EnemyEntity,
@@ -269,12 +285,34 @@ export function applyDamageToEnemy(
     enemy.hp -= finalDmg;
   }
   enemy.hitFlash = 0.12;
+  if (world.vfx.length < 180) {
+    world.vfx.push({
+      kind: 'hit_spark',
+      x: enemy.x + (Math.random() - 0.5) * 14,
+      y: enemy.y - enemy.radius * 0.2,
+      angle: Math.random() * Math.PI * 2,
+      radius: isCrit ? 48 : 34,
+      color: isCrit ? '#fde047' : opts.isMagic ? '#67e8f9' : '#fb923c',
+      life: 0.16,
+      maxLife: 0.16,
+    });
+  }
 
   if (opts.attacker) {
+    const kx = enemy.x - opts.attacker.x;
+    const ky = enemy.y - opts.attacker.y;
+    const kd = Math.hypot(kx, ky) || 1;
+    const push = enemy.isBoss ? 2.5 : enemy.isMiniBoss ? 5 : 9;
+    enemy.knockX = (kx / kd) * push;
+    enemy.knockY = (ky / kd) * push;
+
     opts.attacker.damageDealt += finalDmg;
     const ls = opts.attacker.stats.lifesteal * (opts.lifestealMult ?? 1);
     if (ls > 0 && !opts.attacker.dead) {
       opts.attacker.hp = Math.min(opts.attacker.stats.maxHp, opts.attacker.hp + finalDmg * ls);
+    }
+    if (isCrit && opts.attacker.isLocal) {
+      world.cameraShake = Math.max(world.cameraShake, 2.5);
     }
   }
 
@@ -294,6 +332,7 @@ export function applyDamageToEnemy(
 
   if (enemy.hp <= 0) {
     enemy.hp = 0;
+    if (enemy.isBoss) world.cameraShake = Math.max(world.cameraShake, 7.0);
     opts.onEnemyKilled?.(enemy, opts.attacker);
   }
   return finalDmg;
@@ -375,7 +414,8 @@ export function performBasicAttack(
   const def = getHeroClassDef(hero.classId);
   hero.facing = Math.atan2(dirY, dirX);
   hero.attackCd = 1 / hero.stats.atkSpeed;
-  hero.swingAnim = 0.22;
+  hero.swingAnim = 0.28;
+  hero.swingDuration = 0.28;
   hero.attackCombo = (hero.attackCombo + 1) % 3;
 
   const isStealthBreak = hero.classId === 'blademaster' && hero.stealthTimer > 0;
@@ -388,14 +428,14 @@ export function performBasicAttack(
     const mult = isStealthBreak ? 2.15 : hero.classId === 'blademaster' && hero.attackCombo === 0 ? 1.45 : 1.0;
 
     world.vfx.push({
-      kind: 'slash',
+      kind: hero.classId === 'paladin' ? 'swing_holy' : 'swing_blade',
       x: hero.x + dirX * 26,
       y: hero.y + dirY * 26,
       angle: hero.facing,
       radius: range,
       color: forceCrit ? '#facc15' : hero.color,
-      life: 0.18,
-      maxLife: 0.18,
+      life: 0.22,
+      maxLife: 0.22,
     });
     if (hero.isLocal) SoundFX.playSwordSlash();
 
@@ -420,6 +460,16 @@ export function performBasicAttack(
     }
   } else {
     // Ranged Hero Projectiles
+    world.vfx.push({
+      kind: 'cast_burst',
+      x: hero.x + dirX * 22,
+      y: hero.y - 6 + dirY * 14,
+      angle: hero.facing,
+      radius: 26,
+      color: hero.color,
+      life: 0.16,
+      maxLife: 0.16,
+    });
     if (hero.isLocal) {
       if (hero.classId === 'ranger') SoundFX.playBowShot();
       else SoundFX.playMagicCast();
@@ -490,6 +540,8 @@ export function castHeroSkill(
   hero.mp -= sk.manaCost;
   hero.skillCds[slot] = Math.max(1.2, sk.cooldown * (1 - hero.stats.cdr));
   hero.recallTimer = 0;
+  hero.castAnim = 0.42;
+  hero.swingDuration = 0.42;
 
   if (hero.classId === 'archmage') {
     hero.passiveStacks = Math.min(5, hero.passiveStacks + 1);
@@ -501,6 +553,18 @@ export function castHeroSkill(
   const nx = dirX / len;
   const ny = dirY / len;
   hero.facing = Math.atan2(ny, nx);
+  world.vfx.push({
+    kind: 'cast_burst',
+    x: hero.x,
+    y: hero.y - 8,
+    radius: sk.isUlt ? 86 : 58,
+    color: hero.color,
+    life: 0.3,
+    maxLife: 0.3,
+  });
+  if (hero.isLocal && sk.isUlt) {
+    world.cameraShake = Math.max(world.cameraShake, 5.5);
+  }
 
   const skillDmg =
     sk.damageBase +
@@ -526,9 +590,13 @@ export function castHeroSkill(
         }
       }
       world.vfx.push({ kind: 'beam', x: hero.x, y: hero.y, tx: dest.x, ty: dest.y, radius: 34, color: '#facc15', life: 0.35, maxLife: 0.35 });
+      pushDashAfterimages(hero, hero.x, hero.y, dest.x, dest.y);
       hero.x = dest.x;
       hero.y = dest.y;
-      if (hero.isLocal) SoundFX.playSwordSlash();
+      if (hero.isLocal) {
+        world.cameraShake = Math.max(world.cameraShake, 3.2);
+        SoundFX.playSwordSlash();
+      }
       return true;
     }
     case 'pal_consecrate': {
@@ -681,6 +749,7 @@ export function castHeroSkill(
       }
       hero.x = dest.x;
       hero.y = dest.y;
+      pushDashAfterimages(hero, pts[0].x, pts[0].y, dest.x, dest.y);
       hero.mp = Math.min(hero.stats.maxMp, hero.mp + hero.stats.maxMp * 0.15);
       if (hero.isLocal) SoundFX.playTeleport();
       return true;
@@ -748,6 +817,7 @@ export function castHeroSkill(
         }
       }
       world.vfx.push({ kind: 'beam', x: hero.x, y: hero.y, tx: dest.x, ty: dest.y, radius: 16, color: '#4ade80', life: 0.25, maxLife: 0.25 });
+      pushDashAfterimages(hero, hero.x, hero.y, dest.x, dest.y);
       hero.x = dest.x;
       hero.y = dest.y;
       hero.warsongTimer = Math.max(hero.warsongTimer, 3.5);
@@ -896,6 +966,8 @@ export function castFlashSkill(world: GameWorldState, hero: HeroEntity, dirX: nu
   const ny = dirY / len;
   const dest = clampToRect(hero.x + nx * 270, hero.y + ny * 270, 20, ZONES[hero.zoneId].rect);
   world.vfx.push({ kind: 'teleport', x: hero.x, y: hero.y, radius: 38, color: '#fbbf24', life: 0.35, maxLife: 0.35 });
+  pushDashAfterimages(hero, hero.x, hero.y, dest.x, dest.y);
+  hero.castAnim = 0.25;
   hero.x = dest.x;
   hero.y = dest.y;
   hero.flashCd = 18;

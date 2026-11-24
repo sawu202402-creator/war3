@@ -32,24 +32,42 @@ async function bootstrap() {
   ]);
   if (bootFill) bootFill.style.width = '100%';
   if (bootPct) bootPct.textContent = '100%';
+  document.documentElement.style.setProperty(
+    '--war3-stone-tex',
+    `url("${IconAtlas.getDataUrl('ui_stone_panel')}")`
+  );
   setTimeout(() => IconAtlas.preloadRemainingInBackground(), 80);
 
-  guardBtn.onclick = async () => {
+  const toggleFullscreenLandscape = async () => {
     try {
-      const el = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => Promise<void> };
+      const doc = document as Document & {
+        webkitFullscreenElement?: Element;
+        webkitExitFullscreen?: () => Promise<void>;
+      };
+      if (doc.fullscreenElement || doc.webkitFullscreenElement) {
+        if (doc.exitFullscreen) await doc.exitFullscreen();
+        else if (doc.webkitExitFullscreen) await doc.webkitExitFullscreen();
+        return;
+      }
+      const el = document.documentElement as HTMLElement & {
+        webkitRequestFullscreen?: () => Promise<void>;
+      };
       if (el.requestFullscreen) await el.requestFullscreen();
       else if (el.webkitRequestFullscreen) await el.webkitRequestFullscreen();
       const orient = screen.orientation as ScreenOrientation & { lock?: (mode: string) => Promise<void> };
       await orient?.lock?.('landscape');
     } catch {
-      // manual rotation fallback
+      // fallback cleanly if fullscreen/orientation lock unsupported
     }
   };
+
+  guardBtn.onclick = toggleFullscreenLandscape;
 
   let viewW = window.innerWidth;
   let viewH = window.innerHeight;
   let currentDpr = 1;
   const input = new InputManager(canvas);
+  input.setHudMode(SaveManager.get().hudMode || 'auto');
 
   let hud!: HudUI;
   let modals!: ModalsUI;
@@ -75,7 +93,7 @@ async function bootstrap() {
     lobby.render();
   };
 
-  modals = new ModalsUI(uiLayer, engine, enterLobby);
+  modals = new ModalsUI(uiLayer, engine, enterLobby, toggleFullscreenLandscape);
   hud = new HudUI(uiLayer, engine, {
     onOpenShop: () => modals.toggleShop(),
     onOpenTeleport: () => modals.toggleTeleport(),
@@ -108,6 +126,10 @@ async function bootstrap() {
         })),
       });
       hud.mount();
+    },
+    {
+      onHudModeChange: (mode) => input.setHudMode(mode),
+      onToggleFullscreen: toggleFullscreenLandscape,
     }
   );
 
@@ -147,13 +169,22 @@ async function bootstrap() {
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    const isTouchPortrait = input.usingTouch && viewH > viewW;
+    const isTouchPortrait = (input.detectTouchDevice() || input.usingTouch) && viewH > viewW;
     landscapeGuard.classList.toggle('visible', isTouchPortrait);
-    engine.landscapePaused = isTouchPortrait;
+    if (engine.landscapePaused !== isTouchPortrait) {
+      engine.landscapePaused = isTouchPortrait;
+      if (isTouchPortrait) input.resetStates();
+    }
   };
 
   window.addEventListener('resize', syncViewport);
-  window.addEventListener('orientationchange', () => setTimeout(syncViewport, 200));
+  window.visualViewport?.addEventListener('resize', syncViewport);
+  document.addEventListener('fullscreenchange', syncViewport);
+  window.addEventListener('orientationchange', () => {
+    syncViewport();
+    setTimeout(syncViewport, 150);
+    setTimeout(syncViewport, 350);
+  });
   syncViewport();
 
   const urlRoom = CoopManager.consumeUrlRoomParam();
@@ -182,6 +213,7 @@ async function bootstrap() {
       engine.update(dt, viewW, viewH);
       ctx.setTransform(currentDpr, 0, 0, currentDpr, 0, 0);
       engine.render(viewW, viewH);
+      hud.syncStick();
       hudTick += dt;
       if (hudTick >= 0.08) {
         hudTick = 0;

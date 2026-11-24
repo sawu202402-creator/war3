@@ -1,5 +1,7 @@
 export type HeroClassId = 'paladin' | 'blademaster' | 'archmage' | 'ranger' | 'priest';
 
+export type HudMode = 'auto' | 'touch' | 'pc';
+
 export type DifficultyLevel = 1 | 2 | 3 | 4 | 5;
 
 export type SkillAimType = 'direction' | 'ground_aoe' | 'cone' | 'self' | 'target_ally';
@@ -354,6 +356,7 @@ export interface SaveData {
   careerKills: number;
   totalClears: number;
   rightClickMove: boolean;
+  hudMode?: HudMode;
   aiSquadCount: number; // 0..3
   daily: {
     dateKey: string;

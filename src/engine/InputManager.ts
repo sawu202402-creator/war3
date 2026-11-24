@@ -1,4 +1,4 @@
-import { TargetPriority } from '../types';
+import { HudMode, TargetPriority } from '../types';
 
 export interface StickState {
   active: boolean;
@@ -29,11 +29,13 @@ export class InputManager {
   public mouseScreenX = 0;
   public mouseScreenY = 0;
   public mouseDown = false;
+  public hudMode: HudMode = 'auto';
   public usingTouch = false;
   public attackHeld = false;
   public targetPriority: TargetPriority = 'nearest';
   public rightClickMoveEnabled = false;
   public moveTargetWorld: { x: number; y: number } | null = null;
+  public stickMaxRadius = 46;
 
   public moveStick: StickState = {
     active: false,
@@ -47,6 +49,7 @@ export class InputManager {
   };
   public aimingSkill: AimingSkillState | null = null;
 
+  private stickPointerId = -1;
   private lastTouchAt = 0;
   private onCastSkillCb: ((slot: number, dirX?: number, dirY?: number, distRatio?: number) => void) | null = null;
   private onUsePotionCb: ((slot: 'hp' | 'mp' | 'tactical') => void) | null = null;
@@ -67,7 +70,7 @@ export class InputManager {
 
     const markTouch = () => {
       this.lastTouchAt = performance.now();
-      this.usingTouch = true;
+      if (this.hudMode !== 'pc') this.usingTouch = true;
     };
 
     window.addEventListener('touchstart', markTouch, { passive: true });
@@ -108,7 +111,7 @@ export class InputManager {
       if (gameMoveKey) {
         this.keys.add(code);
         this.moveTargetWorld = null;
-        if (!this.detectTouchDevice() && performance.now() - this.lastTouchAt > 1800) {
+        if (this.hudMode === 'auto' && !this.detectTouchDevice() && performance.now() - this.lastTouchAt > 1800) {
           this.usingTouch = false;
         }
       }
@@ -145,7 +148,7 @@ export class InputManager {
       const rect = this.canvas.getBoundingClientRect();
       this.mouseScreenX = e.clientX - rect.left;
       this.mouseScreenY = e.clientY - rect.top;
-      this.usingTouch = false;
+      if (this.hudMode === 'auto') this.usingTouch = false;
     });
 
     this.canvas.addEventListener('mousedown', (e) => {
@@ -153,7 +156,8 @@ export class InputManager {
       const rect = this.canvas.getBoundingClientRect();
       this.mouseScreenX = e.clientX - rect.left;
       this.mouseScreenY = e.clientY - rect.top;
-      this.usingTouch = false;
+      if (this.hudMode === 'touch') return;
+      if (this.hudMode === 'auto') this.usingTouch = false;
       if (e.button === 0) {
         this.mouseDown = true;
       } else if (e.button === 2) {
@@ -173,7 +177,50 @@ export class InputManager {
       if (e.button === 0) this.mouseDown = false;
     });
 
-    // Left-half dynamic-center virtual stick on canvas touch
+    const beginStick = (id: number, x: number, y: number, rect: DOMRect) => {
+      this.stickMaxRadius = Math.min(rect.width, rect.height) < 420 ? 42 : 52;
+      this.moveStick = {
+        active: true,
+        id,
+        startX: x,
+        startY: y,
+        curX: x,
+        curY: y,
+        dx: 0,
+        dy: 0,
+      };
+    };
+
+    const moveStickTo = (x: number, y: number, rect: DOMRect) => {
+      const maxR = Math.min(rect.width, rect.height) < 420 ? 42 : 52;
+      this.stickMaxRadius = maxR;
+      let vx = x - this.moveStick.startX;
+      let vy = y - this.moveStick.startY;
+      let dist = Math.hypot(vx, vy) || 1;
+      if (dist > maxR + 18) {
+        const pull = dist - (maxR + 18);
+        this.moveStick.startX += (vx / dist) * pull;
+        this.moveStick.startY += (vy / dist) * pull;
+        vx = x - this.moveStick.startX;
+        vy = y - this.moveStick.startY;
+        dist = Math.hypot(vx, vy) || 1;
+      }
+      const clamped = Math.min(dist, maxR);
+      this.moveStick.curX = this.moveStick.startX + (vx / dist) * clamped;
+      this.moveStick.curY = this.moveStick.startY + (vy / dist) * clamped;
+      this.moveStick.dx = dist > 5 ? (vx / dist) * (clamped / maxR) : 0;
+      this.moveStick.dy = dist > 5 ? (vy / dist) * (clamped / maxR) : 0;
+      this.moveTargetWorld = null;
+    };
+
+    const stopStick = () => {
+      this.moveStick.active = false;
+      this.moveStick.dx = 0;
+      this.moveStick.dy = 0;
+      this.stickPointerId = -1;
+    };
+
+    // Left-half dynamic-center virtual stick on native multi-touch
     this.canvas.addEventListener(
       'touchstart',
       (e) => {
@@ -185,16 +232,7 @@ export class InputManager {
           const x = t.clientX - rect.left;
           const y = t.clientY - rect.top;
           if (x < rect.width * 0.48 && !this.moveStick.active) {
-            this.moveStick = {
-              active: true,
-              id: t.identifier,
-              startX: x,
-              startY: y,
-              curX: x,
-              curY: y,
-              dx: 0,
-              dy: 0,
-            };
+            beginStick(t.identifier, x, y, rect);
           }
         }
       },
@@ -206,29 +244,10 @@ export class InputManager {
       (e) => {
         e.preventDefault();
         const rect = this.canvas.getBoundingClientRect();
-        const maxR = Math.min(rect.width, rect.height) < 420 ? 44 : 54;
         for (let i = 0; i < e.changedTouches.length; i++) {
           const t = e.changedTouches[i];
           if (this.moveStick.active && t.identifier === this.moveStick.id) {
-            const x = t.clientX - rect.left;
-            const y = t.clientY - rect.top;
-            let vx = x - this.moveStick.startX;
-            let vy = y - this.moveStick.startY;
-            let dist = Math.hypot(vx, vy) || 1;
-            if (dist > maxR + 18) {
-              const pull = dist - (maxR + 18);
-              this.moveStick.startX += (vx / dist) * pull;
-              this.moveStick.startY += (vy / dist) * pull;
-              vx = x - this.moveStick.startX;
-              vy = y - this.moveStick.startY;
-              dist = Math.hypot(vx, vy) || 1;
-            }
-            const clamped = Math.min(dist, maxR);
-            this.moveStick.curX = this.moveStick.startX + (vx / dist) * clamped;
-            this.moveStick.curY = this.moveStick.startY + (vy / dist) * clamped;
-            this.moveStick.dx = dist > 5 ? (vx / dist) * (clamped / maxR) : 0;
-            this.moveStick.dy = dist > 5 ? (vy / dist) * (clamped / maxR) : 0;
-            this.moveTargetWorld = null;
+            moveStickTo(t.clientX - rect.left, t.clientY - rect.top, rect);
           }
         }
       },
@@ -239,22 +258,58 @@ export class InputManager {
       for (let i = 0; i < e.changedTouches.length; i++) {
         const t = e.changedTouches[i];
         if (this.moveStick.active && t.identifier === this.moveStick.id) {
-          this.moveStick.active = false;
-          this.moveStick.dx = 0;
-          this.moveStick.dy = 0;
+          stopStick();
         }
       }
     };
     this.canvas.addEventListener('touchend', endTouch);
     this.canvas.addEventListener('touchcancel', endTouch);
+
+    // Pointer fallback when forced into 'touch' mode on desktop/stylus/emulated mobile preview
+    this.canvas.addEventListener('pointerdown', (e) => {
+      if (this.hudMode !== 'touch' || e.pointerType === 'touch') return;
+      const rect = this.canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      if (x < rect.width * 0.48 && !this.moveStick.active) {
+        this.stickPointerId = e.pointerId;
+        try {
+          this.canvas.setPointerCapture(e.pointerId);
+        } catch {
+          // ignore if capture rejected
+        }
+        beginStick(e.pointerId, x, y, rect);
+      }
+    });
+    window.addEventListener('pointermove', (e) => {
+      if (this.hudMode !== 'touch' || e.pointerType === 'touch') return;
+      if (this.moveStick.active && e.pointerId === this.stickPointerId) {
+        const rect = this.canvas.getBoundingClientRect();
+        moveStickTo(e.clientX - rect.left, e.clientY - rect.top, rect);
+      }
+    });
+    const endPtrStick = (e: PointerEvent) => {
+      if (e.pointerId === this.stickPointerId && this.moveStick.active) {
+        stopStick();
+      }
+    };
+    window.addEventListener('pointerup', endPtrStick);
+    window.addEventListener('pointercancel', endPtrStick);
   }
 
-  private detectTouchDevice(): boolean {
+  public setHudMode(mode: HudMode): void {
+    this.hudMode = mode;
+    if (mode === 'touch') this.usingTouch = true;
+    else if (mode === 'pc') this.usingTouch = false;
+    else this.usingTouch = this.detectTouchDevice() || performance.now() - this.lastTouchAt < 1800;
+  }
+
+  public detectTouchDevice(): boolean {
     if (typeof window === 'undefined') return false;
-    return (
-      navigator.maxTouchPoints > 0 &&
-      window.matchMedia('(pointer: coarse)').matches
-    );
+    const hasTouch = navigator.maxTouchPoints > 0 || 'ontouchstart' in window;
+    const isCoarseOrNarrow =
+      window.matchMedia('(pointer: coarse)').matches || Math.min(window.innerWidth, window.innerHeight) <= 560;
+    return hasTouch && isCoarseOrNarrow;
   }
 
   public bindActions(handlers: {
@@ -319,6 +374,7 @@ export class InputManager {
     this.moveStick.active = false;
     this.moveStick.dx = 0;
     this.moveStick.dy = 0;
+    this.stickPointerId = -1;
     this.aimingSkill = null;
   }
 }

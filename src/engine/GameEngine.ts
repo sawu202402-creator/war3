@@ -58,6 +58,8 @@ export class GameEngine {
   public landscapePaused = false;
   public camX = 1400;
   public camY = 1700;
+  public worldZoom = 1.0;
+  public lockedTargetId: number | null = null;
 
   private renderer = new War3Renderer();
   private netSyncTimer = 0;
@@ -80,7 +82,7 @@ export class GameEngine {
       onPause: () => this.cbs.onTogglePause(),
       onActiveItem: () => this.handleActiveItemInput(),
       onRightClickWorld: (sx, sy) => {
-        this.input.moveTargetWorld = { x: this.camX + sx, y: this.camY + sy };
+        this.input.moveTargetWorld = { x: this.camX + sx / this.worldZoom, y: this.camY + sy / this.worldZoom };
       },
     });
   }
@@ -197,13 +199,17 @@ export class GameEngine {
       bannerText: `🛡️ 第 1 波将于 16 秒后袭来！可先到铁匠铺买新手装或去圣泉接水！`,
       bannerColor: '#fde047',
       bannerTimer: 5.0,
+      cameraShake: 0,
       nextEntityId: 1,
     };
 
     const local = this.getLocalHero();
     if (local) {
-      this.camX = local.x - (this.canvas.clientWidth || 1280) / 2;
-      this.camY = local.y - (this.canvas.clientHeight || 720) / 2;
+      const vw = this.canvas.clientWidth || 1280;
+      const vh = this.canvas.clientHeight || 720;
+      this.worldZoom = vh < 620 || vw < 960 ? Math.max(0.62, Math.min(1.0, Math.min(vw / 1080, vh / 560))) : 1.0;
+      this.camX = local.x - (vw / this.worldZoom) / 2;
+      this.camY = local.y - (vh / this.worldZoom) / 2;
     }
 
     SoundFX.unlockAudio();
@@ -308,6 +314,15 @@ export class GameEngine {
       stunTimer: 0,
       carryingWater: false,
       waterDeliveriesDone: 0,
+      prevX: HERO_SPAWN_POS.x + (opts.slot - 1) * 56,
+      prevY: HERO_SPAWN_POS.y + (opts.slot % 2) * 32,
+      moveSpeedNorm: 0,
+      animPhase: opts.slot * 1.1,
+      flipVisual: 1,
+      castAnim: 0,
+      swingDuration: 0.28,
+      stepDustTimer: 0,
+      afterimages: [],
       botDecisionTimer: 1.0,
     };
     recalcHeroStats(h);
@@ -389,10 +404,27 @@ export class GameEngine {
       if (world.pings[i].life <= 0) world.pings.splice(i, 1);
     }
 
+    this.updateKinematics(world, dt);
+
+    // Adaptive mobile camera zoom & target lock
+    this.worldZoom =
+      viewH < 620 || viewW < 960
+        ? Math.max(0.62, Math.min(1.0, Math.min(viewW / 1080, viewH / 560)))
+        : 1.0;
+    const worldW = viewW / this.worldZoom;
+    const worldH = viewH / this.worldZoom;
+
+    if (local && !local.dead) {
+      const lt = this.pickSmartTarget(world, local, Math.max(local.stats.attackRange + 220, 380));
+      this.lockedTargetId = lt ? lt.id : null;
+    } else {
+      this.lockedTargetId = null;
+    }
+
     // Camera smooth follow
     if (local) {
-      const targetCamX = Math.max(0, Math.min(WORLD_WIDTH - viewW, local.x - viewW / 2));
-      const targetCamY = Math.max(0, Math.min(WORLD_HEIGHT - viewH, local.y - viewH / 2));
+      const targetCamX = Math.max(0, Math.min(WORLD_WIDTH - worldW, local.x - worldW / 2));
+      const targetCamY = Math.max(0, Math.min(WORLD_HEIGHT - worldH, local.y - worldH / 2));
       this.camX += (targetCamX - this.camX) * Math.min(1, dt * 10);
       this.camY += (targetCamY - this.camY) * Math.min(1, dt * 10);
     }
@@ -578,41 +610,62 @@ export class GameEngine {
       const spd = hero.stats.moveSpeed * (priestAura ? 1.15 : 1.0);
       hero.x += dx * spd * dt;
       hero.y += dy * spd * dt;
-      hero.facing = Math.atan2(dy, dx);
+      if (hero.swingAnim <= 0.08) {
+        hero.facing = Math.atan2(dy, dx);
+      }
     }
 
-    // Basic Attack (Hold Space / Left Click / Touch Main Attack Button)
-    if (this.input.isAttackPressed() && hero.attackCd <= 0) {
-      hero.recallTimer = 0;
-      const target = this.pickSmartTarget(world, hero, hero.stats.attackRange + 95);
-      let ax = Math.cos(hero.facing);
-      let ay = Math.sin(hero.facing);
-
-      if (target) {
-        const tx = target.x - hero.x;
-        const ty = target.y - hero.y;
+    // Hold-Attack Auto-Chase toward nearby target
+    if (this.input.attackHeld && dx === 0 && dy === 0) {
+      const chaseTarget = this.pickSmartTarget(world, hero, Math.max(hero.stats.attackRange + 240, 360));
+      if (chaseTarget) {
+        const tx = chaseTarget.x - hero.x;
+        const ty = chaseTarget.y - hero.y;
         const d = Math.hypot(tx, ty) || 1;
-        ax = tx / d;
-        ay = ty / d;
-        // If slightly out of range on touch hold, step toward enemy automatically (Honor of Kings feel!)
-        if (this.input.attackHeld && d > hero.stats.attackRange + target.radius) {
-          hero.x += ax * hero.stats.moveSpeed * 0.85 * dt;
-          hero.y += ay * hero.stats.moveSpeed * 0.85 * dt;
-          hero.facing = Math.atan2(ay, ax);
+        if (d > hero.stats.attackRange + chaseTarget.radius) {
+          hero.recallTimer = 0;
+          hero.x += (tx / d) * hero.stats.moveSpeed * 0.92 * dt;
+          hero.y += (ty / d) * hero.stats.moveSpeed * 0.92 * dt;
+          hero.facing = Math.atan2(ty, tx);
           return;
         }
-      } else if (!this.input.usingTouch && this.input.mouseDown) {
-        const mx = this.camX + this.input.mouseScreenX - hero.x;
-        const my = this.camY + this.input.mouseScreenY - hero.y;
-        const md = Math.hypot(mx, my) || 1;
-        ax = mx / md;
-        ay = my / md;
       }
+    }
 
-      const onKilled = (e: typeof world.enemies[number], k?: HeroEntity) => handleEnemyDeathDrops(world, e, k);
-      performBasicAttack(world, hero, ax, ay, onKilled);
-      if (CoopManager.isActiveCoop() && CoopManager.role === 'client') {
-        CoopManager.sendToHost({ type: 'cmd_attack', ownerId: hero.id, dirX: ax, dirY: ay });
+    // Basic Attack: Automatic when enemies are within range (preserving Recall & Windwalk stealth),
+    // plus manual override via Touch Main Attack / Space / Left-Click
+    const manualAttack = this.input.isAttackPressed();
+    const canAutoAttack = hero.recallTimer <= 0 && hero.stealthTimer <= 0;
+    if (hero.attackCd <= 0 && (manualAttack || canAutoAttack)) {
+      const target = this.pickSmartTarget(
+        world,
+        hero,
+        manualAttack ? hero.stats.attackRange + 95 : hero.stats.attackRange + 28
+      );
+      if (target || manualAttack) {
+        hero.recallTimer = 0;
+        let ax = Math.cos(hero.facing);
+        let ay = Math.sin(hero.facing);
+
+        if (target) {
+          const tx = target.x - hero.x;
+          const ty = target.y - hero.y;
+          const d = Math.hypot(tx, ty) || 1;
+          ax = tx / d;
+          ay = ty / d;
+        } else if (!this.input.usingTouch && this.input.mouseDown) {
+          const mx = this.camX + this.input.mouseScreenX / this.worldZoom - hero.x;
+          const my = this.camY + this.input.mouseScreenY / this.worldZoom - hero.y;
+          const md = Math.hypot(mx, my) || 1;
+          ax = mx / md;
+          ay = my / md;
+        }
+
+        const onKilled = (e: typeof world.enemies[number], k?: HeroEntity) => handleEnemyDeathDrops(world, e, k);
+        performBasicAttack(world, hero, ax, ay, onKilled);
+        if (CoopManager.isActiveCoop() && CoopManager.role === 'client') {
+          CoopManager.sendToHost({ type: 'cmd_attack', ownerId: hero.id, dirX: ax, dirY: ay });
+        }
       }
     }
   }
@@ -641,8 +694,8 @@ export class GameEngine {
       return { dx: tx / d, dy: ty / d, distRatio: Math.min(1, d / Math.max(1, range)) };
     }
     if (!this.input.usingTouch) {
-      const mx = this.camX + this.input.mouseScreenX - hero.x;
-      const my = this.camY + this.input.mouseScreenY - hero.y;
+      const mx = this.camX + this.input.mouseScreenX / this.worldZoom - hero.x;
+      const my = this.camY + this.input.mouseScreenY / this.worldZoom - hero.y;
       const d = Math.hypot(mx, my) || 1;
       return { dx: mx / d, dy: my / d, distRatio: Math.min(1, d / Math.max(1, range)) };
     }
@@ -882,7 +935,111 @@ export class GameEngine {
 
   public render(viewW: number, viewH: number): void {
     if (!this.world) return;
-    this.renderer.renderWorld(this.ctx, this.world, this.input, this.camX, this.camY, viewW, viewH);
+    const shake = this.world.cameraShake > 0.1 ? this.world.cameraShake : 0;
+    const sx = shake > 0 ? (Math.random() - 0.5) * 2 * shake : 0;
+    const sy = shake > 0 ? (Math.random() - 0.5) * 2 * shake : 0;
+    this.renderer.renderWorld(
+      this.ctx,
+      this.world,
+      this.input,
+      this.camX + sx,
+      this.camY + sy,
+      viewW,
+      viewH,
+      this.worldZoom,
+      this.lockedTargetId
+    );
+  }
+
+  private updateKinematics(world: GameWorldState, dt: number): void {
+    const safeDt = Math.max(0.001, dt);
+    const heroSmoothing = Math.min(1, dt * 12);
+    const flipSmoothing = Math.min(1, dt * 16);
+
+    for (const h of world.heroes) {
+      if (h.dead) {
+        h.prevX = h.x;
+        h.prevY = h.y;
+        h.moveSpeedNorm = 0;
+        h.afterimages.length = 0;
+        continue;
+      }
+
+      let dd = Math.hypot(h.x - h.prevX, h.y - h.prevY);
+      if (dd > 500) {
+        h.prevX = h.x;
+        h.prevY = h.y;
+        dd = 0;
+      }
+
+      const rawNorm = Math.min(1, dd / safeDt / Math.max(120, h.stats.moveSpeed));
+      h.moveSpeedNorm += (rawNorm - h.moveSpeedNorm) * heroSmoothing;
+      h.animPhase += dt * (2.6 + h.moveSpeedNorm * 9.8);
+
+      const cosF = Math.cos(h.facing);
+      const targetFlip = cosF < -0.08 ? -1 : cosF > 0.08 ? 1 : h.flipVisual >= 0 ? 1 : -1;
+      h.flipVisual += (targetFlip - h.flipVisual) * flipSmoothing;
+
+      if (h.castAnim > 0) h.castAnim = Math.max(0, h.castAnim - dt);
+
+      h.stepDustTimer -= dt;
+      if (h.moveSpeedNorm > 0.35 && h.stepDustTimer <= 0 && world.vfx.length < 180) {
+        h.stepDustTimer = 0.24;
+        world.vfx.push({
+          kind: 'dust',
+          x: h.x - Math.cos(h.facing) * 10 + (Math.random() - 0.5) * 10,
+          y: h.y + 8,
+          angle: Math.random() * Math.PI * 2,
+          radius: 24,
+          color: '#d6b47c',
+          life: 0.34,
+          maxLife: 0.34,
+        });
+      }
+
+      if ((dd > 26 && dd < 460) || h.bladestormTimer > 0 || h.stealthTimer > 0) {
+        if (h.afterimages.length < 10) {
+          h.afterimages.push({
+            x: h.x,
+            y: h.y,
+            flip: h.flipVisual >= 0 ? 1 : -1,
+            pose: h.bladestormTimer > 0 ? 'attack' : 'walk1',
+            alpha: h.stealthTimer > 0 ? 0.28 : 0.42,
+            color: h.color,
+          });
+        }
+      }
+      for (let i = h.afterimages.length - 1; i >= 0; i--) {
+        h.afterimages[i].alpha -= dt * 3.4;
+        if (h.afterimages[i].alpha <= 0.03) h.afterimages.splice(i, 1);
+      }
+
+      h.prevX = h.x;
+      h.prevY = h.y;
+    }
+
+    const enemySmooth = Math.min(1, dt * 10);
+    const knockDamp = Math.pow(0.001, dt);
+    for (const e of world.enemies) {
+      let edd = Math.hypot(e.x - e.prevX, e.y - e.prevY);
+      if (edd > 500) {
+        e.prevX = e.x;
+        e.prevY = e.y;
+        edd = 0;
+      }
+      const eraw = Math.min(1, edd / safeDt / Math.max(60, e.moveSpeed));
+      e.moveSpeedNorm += (eraw - e.moveSpeedNorm) * enemySmooth;
+      e.animPhase += dt * (2.2 + e.moveSpeedNorm * 7.8);
+      if (e.attackAnim > 0) e.attackAnim = Math.max(0, e.attackAnim - dt);
+      e.knockX *= knockDamp;
+      e.knockY *= knockDamp;
+      e.prevX = e.x;
+      e.prevY = e.y;
+    }
+
+    if (world.cameraShake > 0) {
+      world.cameraShake = Math.max(0, world.cameraShake - dt * 18);
+    }
   }
 
   public renderMinimap(minimapCanvas: HTMLCanvasElement): void {

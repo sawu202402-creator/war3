@@ -147,6 +147,7 @@ export function applyDamageToSanctuary(world: GameWorldState, rawDmg: number): v
     world.sanctuary.hp -= dmg;
   }
   world.sanctuary.underAttackFlash = 0.35;
+  world.cameraShake = Math.max(world.cameraShake, rawDmg > 120 ? 4.5 : 2.0);
   SoundFX.playAthenaWarn();
 
   if (world.sanctuary.hp <= 0) {
@@ -299,6 +300,7 @@ export function updateEnemies(world: GameWorldState, dt: number): void {
 
       if (e.attackTimer <= 0) {
         e.attackTimer = e.attackCd;
+        e.attackAnim = 0.26;
         if (e.isRanged) {
           world.projectiles.push({
             id: world.nextEntityId++,

@@ -89,6 +89,13 @@ export function spawnEnemy(
     bossPhase: 1,
     fleeTimer: kind === 'treasure_goblin' ? 28 : 0,
     splitGeneration: splitGen,
+    prevX: x,
+    prevY: y,
+    moveSpeedNorm: 0,
+    animPhase: Math.random() * Math.PI * 2,
+    attackAnim: 0,
+    knockX: 0,
+    knockY: 0,
   };
   world.enemies.push(e);
   return e;

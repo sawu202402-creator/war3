@@ -10,6 +10,8 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="icon" type="image/png" href="./icon-192.png" />
+    <link rel="apple-touch-icon" href="./icon-192.png" />
     <link rel="manifest" href="./manifest.json" />
     <title>圣殿守卫战 · War3 防守 RPG</title>
     <style>
@@ -23,6 +25,7 @@
         background: #0b0e14;
         user-select: none;
         -webkit-user-select: none;
+        -webkit-touch-callout: none;
         touch-action: none;
       }
       #game-root {
@@ -145,12 +148,12 @@
       </div>
 
       <div id="landscape-guard" class="landscape-guard" aria-hidden="true">
-        <div class="landscape-guard-card">
-          <div class="rotate-phone-icon">⚔️↻</div>
+        <div class="landscape-guard-card war3-stone-panel">
+          <img class="guard-crest-img" src="./assets/hero_paladin.png" alt="圣殿骑士" />
           <h2>请横屏体验圣殿守卫战</h2>
           <p>横屏宽视野配合双摇杆轮盘施法，畅享魔兽防守团战手感</p>
           <button id="btn-guard-landscape" class="war3-btn war3-btn-gold" type="button">
-            ⛶ 全屏并锁定横屏
+            全屏并锁定横屏
           </button>
         </div>
       </div>

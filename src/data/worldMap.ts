@@ -218,8 +218,18 @@ export const WORLD_PROPS: WorldPropDef[] = [
   { id: 'braz_2', kind: 'brazier', x: 2240, y: 1960, radius: 18, color: '#fb923c' },
   { id: 'braz_3', kind: 'brazier', x: 1960, y: 2240, radius: 18, color: '#fb923c' },
   { id: 'braz_4', kind: 'brazier', x: 2240, y: 2240, radius: 18, color: '#fb923c' },
-  // 铁匠铺砧台装饰
+  // 铁匠铺砧台装饰与圣殿雕柱/晶簇/旌旗
   { id: 'anvil_1', kind: 'anvil', x: 2295, y: 2040, radius: 22, color: '#94a3b8' },
+  { id: 'ban_s1', kind: 'banner', x: 2015, y: 2035, radius: 14, color: '#eab308' },
+  { id: 'ban_s2', kind: 'banner', x: 2185, y: 2035, radius: 14, color: '#eab308' },
+  { id: 'crys_f1', kind: 'crystal', x: 1995, y: 2325, radius: 18, color: '#38bdf8' },
+  { id: 'crys_f2', kind: 'crystal', x: 2205, y: 2325, radius: 18, color: '#38bdf8' },
+  { id: 'pil_n1', kind: 'pillar', x: 1995, y: 1745, radius: 20, color: '#eab308' },
+  { id: 'pil_n2', kind: 'pillar', x: 2205, y: 1745, radius: 20, color: '#eab308' },
+  { id: 'pil_w1', kind: 'pillar', x: 1835, y: 2010, radius: 20, color: '#eab308' },
+  { id: 'pil_w2', kind: 'pillar', x: 1835, y: 2190, radius: 20, color: '#eab308' },
+  { id: 'pil_s1', kind: 'pillar', x: 1995, y: 2455, radius: 20, color: '#eab308' },
+  { id: 'pil_s2', kind: 'pillar', x: 2205, y: 2455, radius: 20, color: '#eab308' },
   // 圣殿外围古树
   { id: 'tree_1', kind: 'tree', x: 1510, y: 1530, radius: 28 },
   { id: 'tree_2', kind: 'tree', x: 1510, y: 1730, radius: 28 },
@@ -229,6 +239,10 @@ export const WORLD_PROPS: WorldPropDef[] = [
   { id: 'tree_6', kind: 'tree', x: 2680, y: 1730, radius: 28 },
   { id: 'tree_7', kind: 'tree', x: 2680, y: 2460, radius: 28 },
   { id: 'tree_8', kind: 'tree', x: 2680, y: 2660, radius: 28 },
+  { id: 'tree_c1', kind: 'tree', x: 1640, y: 1440, radius: 28 },
+  { id: 'tree_c2', kind: 'tree', x: 2560, y: 1440, radius: 28 },
+  { id: 'tree_c3', kind: 'tree', x: 1640, y: 2760, radius: 28 },
+  { id: 'tree_c4', kind: 'tree', x: 2560, y: 2760, radius: 28 },
   // 运水东道两旁哨旗与古树
   { id: 'ban_1', kind: 'banner', x: 2850, y: 2020, radius: 16, color: '#eab308' },
   { id: 'ban_2', kind: 'banner', x: 3180, y: 2020, radius: 16, color: '#eab308' },

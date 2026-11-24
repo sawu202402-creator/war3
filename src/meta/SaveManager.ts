@@ -59,6 +59,7 @@ function createDefaultSave(): SaveData {
     careerKills: 0,
     totalClears: 0,
     rightClickMove: false,
+    hudMode: 'auto',
     aiSquadCount: 1,
     daily: {
       dateKey: getTodayKey(),

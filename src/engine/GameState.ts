@@ -7,6 +7,17 @@ import {
   ZoneId,
 } from '../types';
 
+export type HeroAnimPose = 'idle' | 'walk1' | 'walk2' | 'attack';
+
+export interface HeroAfterimage {
+  x: number;
+  y: number;
+  flip: number;
+  pose: HeroAnimPose;
+  alpha: number;
+  color: string;
+}
+
 export interface HeroEntity {
   id: string;
   slot: number;
@@ -116,6 +127,17 @@ export interface HeroEntity {
   carryingWater: boolean;
   waterDeliveriesDone: number;
 
+  // Animation & Kinematics
+  prevX: number;
+  prevY: number;
+  moveSpeedNorm: number;
+  animPhase: number;
+  flipVisual: number;
+  castAnim: number;
+  swingDuration: number;
+  stepDustTimer: number;
+  afterimages: HeroAfterimage[];
+
   // Interpolation / AI
   botDecisionTimer: number;
   netTx?: number;
@@ -176,11 +198,18 @@ export interface EnemyEntity {
   tauntTimer: number;
   hitFlash: number;
 
-  // Boss AI
+  // Boss AI & Kinematics
   bossAbilityTimer: number;
   bossPhase: number;
   fleeTimer: number; // for treasure goblin
   splitGeneration: number;
+  prevX: number;
+  prevY: number;
+  moveSpeedNorm: number;
+  animPhase: number;
+  attackAnim: number;
+  knockX: number;
+  knockY: number;
 }
 
 export interface SummonEntity {
@@ -280,7 +309,19 @@ export interface FloatingText {
 }
 
 export interface VisualEffect {
-  kind: 'ring' | 'slash' | 'beam' | 'chain' | 'levelup' | 'explosion' | 'teleport';
+  kind:
+    | 'ring'
+    | 'slash'
+    | 'beam'
+    | 'chain'
+    | 'levelup'
+    | 'explosion'
+    | 'teleport'
+    | 'dust'
+    | 'hit_spark'
+    | 'cast_burst'
+    | 'swing_holy'
+    | 'swing_blade';
   x: number;
   y: number;
   tx?: number;
@@ -359,5 +400,6 @@ export interface GameWorldState {
   bannerText: string;
   bannerColor: string;
   bannerTimer: number;
+  cameraShake: number;
   nextEntityId: number;
 }
