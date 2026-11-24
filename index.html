@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#0b0e14" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="manifest" href="./manifest.json" />
+    <title>圣殿守卫战 · War3 防守 RPG</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #0b0e14;
+        user-select: none;
+        -webkit-user-select: none;
+        touch-action: none;
+      }
+      #game-root {
+        position: relative;
+        width: 100vw;
+        height: 100dvh;
+        overflow: hidden;
+        background: #0b0e14;
+      }
+      #game-canvas {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      #ui-layer {
+        position: absolute;
+        inset: 0;
+        transform-origin: top left;
+        pointer-events: none;
+      }
+      #boot-loader {
+        position: fixed;
+        inset: 0;
+        z-index: 400;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background:
+          radial-gradient(circle at 50% 30%, rgba(161, 98, 7, 0.25), rgba(8, 11, 18, 0.98) 70%),
+          #080b12;
+        color: #f8fafc;
+        font-family: 'Noto Serif SC', 'PingFang SC', 'Microsoft YaHei', Georgia, serif;
+        transition: opacity 0.28s ease;
+      }
+      #boot-loader.fade-out {
+        opacity: 0;
+        pointer-events: none;
+      }
+      .boot-card {
+        width: min(420px, 86vw);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        text-align: center;
+        padding: 26px 24px;
+        border-radius: 12px;
+        background: linear-gradient(180deg, rgba(22, 28, 40, 0.96), rgba(11, 15, 23, 0.98));
+        border: 2px solid #b88b34;
+        box-shadow:
+          0 0 0 1px rgba(251, 191, 36, 0.22) inset,
+          0 20px 50px rgba(0, 0, 0, 0.78);
+      }
+      .boot-badge {
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 2px;
+        color: #fde68a;
+        background: rgba(180, 128, 36, 0.22);
+        border: 1px solid rgba(217, 169, 66, 0.55);
+        border-radius: 999px;
+        padding: 4px 14px;
+      }
+      .boot-card h1 {
+        margin: 2px 0 0 0;
+        font-size: 24px;
+        font-weight: 900;
+        letter-spacing: 1px;
+        color: #fef3c7;
+        text-shadow: 0 2px 10px rgba(217, 119, 6, 0.45);
+      }
+      .boot-sub {
+        margin: 0;
+        font-size: 12.5px;
+        color: #cbd5e1;
+      }
+      .boot-bar-track {
+        width: 100%;
+        height: 11px;
+        background: #090d16;
+        border: 1px solid #785b22;
+        border-radius: 999px;
+        overflow: hidden;
+      }
+      #boot-bar-fill {
+        width: 12%;
+        height: 100%;
+        background: linear-gradient(90deg, #b45309, #eab308, #fef08a);
+        transition: width 0.12s ease-out;
+      }
+      .boot-pct-row {
+        width: 100%;
+        display: flex;
+        justify-content: space-between;
+        font-size: 11.5px;
+        color: #e2e8f0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="game-root">
+      <canvas id="game-canvas"></canvas>
+      <div id="ui-layer"></div>
+
+      <div id="boot-loader" role="status" aria-live="polite">
+        <div class="boot-card">
+          <span class="boot-badge">WARCRAFT STYLE DEFENSE RPG</span>
+          <h1>圣殿守卫战 · ATHENA SIEGE</h1>
+          <p class="boot-sub">正在铸造圣殿图腾与英雄秘典...</p>
+          <div class="boot-bar-track">
+            <div id="boot-bar-fill"></div>
+          </div>
+          <div class="boot-pct-row">
+            <span id="boot-status">加载奇幻战区资源</span>
+            <span id="boot-pct">12%</span>
+          </div>
+        </div>
+      </div>
+
+      <div id="landscape-guard" class="landscape-guard" aria-hidden="true">
+        <div class="landscape-guard-card">
+          <div class="rotate-phone-icon">⚔️↻</div>
+          <h2>请横屏体验圣殿守卫战</h2>
+          <p>横屏宽视野配合双摇杆轮盘施法，畅享魔兽防守团战手感</p>
+          <button id="btn-guard-landscape" class="war3-btn war3-btn-gold" type="button">
+            ⛶ 全屏并锁定横屏
+          </button>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
