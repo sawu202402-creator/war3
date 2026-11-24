@@ -1,7 +1,7 @@
 import { SoundFX } from '../audio/SoundFX';
 import { DIFFICULTIES, getHeroClassDef } from '../data/heroes';
 import { getWaveDef } from '../data/waves';
-import { ATHENA_POS, HERO_SPAWN_POS, WAVE_LANES, ZONES, clampToRect } from '../data/worldMap';
+import { ATHENA_POS, HERO_FORMATION_OFFSETS, HERO_SPAWN_POS, WAVE_LANES, ZONES, clampToRect } from '../data/worldMap';
 import { SaveManager } from '../meta/SaveManager';
 import { EnemyKind } from '../types';
 import { handleEnemyDeathDrops, spawnEnemy, teleportHeroToZone } from './BranchSystem';
@@ -756,9 +756,16 @@ export function updateBotHeroes(world: GameWorldState, dt: number): void {
         bot.y += (dy / d) * bot.stats.moveSpeed * dt;
       }
     } else {
-      // Idle position near Athena or behind player
-      const anchorX = bot.aiMode === 'follow_player' && localHero ? localHero.x - 65 : HERO_SPAWN_POS.x + (bot.slot - 1) * 58;
-      const anchorY = bot.aiMode === 'follow_player' && localHero ? localHero.y + 40 : HERO_SPAWN_POS.y;
+      // Idle position in spread formation near Athena or flanking player
+      const fOff = HERO_FORMATION_OFFSETS[bot.slot % HERO_FORMATION_OFFSETS.length];
+      const followOff = [
+        { x: 0, y: 0 },
+        { x: -78, y: 36 },
+        { x: 78, y: 36 },
+        { x: 0, y: 74 },
+      ][bot.slot % 4];
+      const anchorX = bot.aiMode === 'follow_player' && localHero ? localHero.x + followOff.x : HERO_SPAWN_POS.x + fOff.x;
+      const anchorY = bot.aiMode === 'follow_player' && localHero ? localHero.y + followOff.y : HERO_SPAWN_POS.y + fOff.y;
       const dx = anchorX - bot.x;
       const dy = anchorY - bot.y;
       const d = Math.hypot(dx, dy);

@@ -1,6 +1,6 @@
 import { SoundFX } from '../audio/SoundFX';
 import { DIFFICULTIES, getHeroClassDef } from '../data/heroes';
-import { ATHENA_POS, FOUNTAIN_POS, HERO_SPAWN_POS, PORTALS, TOWER_SLOTS, WORLD_HEIGHT, WORLD_WIDTH, ZONES } from '../data/worldMap';
+import { ATHENA_POS, FOUNTAIN_POS, HERO_FORMATION_OFFSETS, HERO_SPAWN_POS, PORTALS, TOWER_SLOTS, WORLD_HEIGHT, WORLD_WIDTH, ZONES } from '../data/worldMap';
 import { SaveManager } from '../meta/SaveManager';
 import { CoopManager } from '../net/CoopManager';
 import { CoopNetMessage } from '../net/CoopProtocol';
@@ -85,6 +85,12 @@ export class GameEngine {
         this.input.moveTargetWorld = { x: this.camX + sx / this.worldZoom, y: this.camY + sy / this.worldZoom };
       },
     });
+  }
+
+  private computeWorldZoom(viewW: number, viewH: number): number {
+    return viewH < 620 || viewW < 960
+      ? Math.max(0.68, Math.min(1.0, Math.min(viewW / 1040, viewH / 525)))
+      : 1.0;
   }
 
   public startNewMatch(opts: {
@@ -196,9 +202,9 @@ export class GameEngine {
       floatingTexts: [],
       vfx: [],
       pings: [],
-      bannerText: `🛡️ 第 1 波将于 16 秒后袭来！可先到铁匠铺买新手装或去圣泉接水！`,
+      bannerText: `第 1 波 16s 后袭来 · 可先购装或去圣泉接水`,
       bannerColor: '#fde047',
-      bannerTimer: 5.0,
+      bannerTimer: 3.2,
       cameraShake: 0,
       nextEntityId: 1,
     };
@@ -207,7 +213,7 @@ export class GameEngine {
     if (local) {
       const vw = this.canvas.clientWidth || 1280;
       const vh = this.canvas.clientHeight || 720;
-      this.worldZoom = vh < 620 || vw < 960 ? Math.max(0.62, Math.min(1.0, Math.min(vw / 1080, vh / 560))) : 1.0;
+      this.worldZoom = this.computeWorldZoom(vw, vh);
       this.camX = local.x - (vw / this.worldZoom) / 2;
       this.camY = local.y - (vh / this.worldZoom) / 2;
     }
@@ -241,6 +247,9 @@ export class GameEngine {
     const def = getHeroClassDef(opts.classId);
     const save = SaveManager.get();
     const startGold = 320 + save.talents.startGold * 120 + (opts.difficulty >= 3 ? 120 : 0);
+    const spawnOff = HERO_FORMATION_OFFSETS[opts.slot % HERO_FORMATION_OFFSETS.length];
+    const spawnX = HERO_SPAWN_POS.x + spawnOff.x;
+    const spawnY = HERO_SPAWN_POS.y + spawnOff.y;
     const h: HeroEntity = {
       id: opts.id,
       slot: opts.slot,
@@ -250,8 +259,8 @@ export class GameEngine {
       isBot: opts.isBot,
       aiMode: 'guard_base',
       color: def.color,
-      x: HERO_SPAWN_POS.x + (opts.slot - 1) * 56,
-      y: HERO_SPAWN_POS.y + (opts.slot % 2) * 32,
+      x: spawnX,
+      y: spawnY,
       vx: 0,
       vy: 0,
       facing: -Math.PI / 2,
@@ -314,8 +323,8 @@ export class GameEngine {
       stunTimer: 0,
       carryingWater: false,
       waterDeliveriesDone: 0,
-      prevX: HERO_SPAWN_POS.x + (opts.slot - 1) * 56,
-      prevY: HERO_SPAWN_POS.y + (opts.slot % 2) * 32,
+      prevX: spawnX,
+      prevY: spawnY,
       moveSpeedNorm: 0,
       animPhase: opts.slot * 1.1,
       flipVisual: 1,
@@ -407,10 +416,7 @@ export class GameEngine {
     this.updateKinematics(world, dt);
 
     // Adaptive mobile camera zoom & target lock
-    this.worldZoom =
-      viewH < 620 || viewW < 960
-        ? Math.max(0.62, Math.min(1.0, Math.min(viewW / 1080, viewH / 560)))
-        : 1.0;
+    this.worldZoom = this.computeWorldZoom(viewW, viewH);
     const worldW = viewW / this.worldZoom;
     const worldH = viewH / this.worldZoom;
 

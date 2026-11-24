@@ -9,9 +9,9 @@ import { CoopManager } from '../net/CoopManager';
 export class HudUI {
   private container: HTMLElement | null = null;
   private minimapCanvas: HTMLCanvasElement | null = null;
-  private lastQuickHash = '';
-  private lastSquadHash = '';
-  private lastInvHash = '';
+  private lastQuickHash = '__init__';
+  private lastSquadHash = '__init__';
+  private lastInvHash = '__init__';
   private lastHeroClass = '';
 
   constructor(
@@ -262,9 +262,9 @@ export class HudUI {
     this.container?.remove();
     this.container = null;
     this.minimapCanvas = null;
-    this.lastQuickHash = '';
-    this.lastSquadHash = '';
-    this.lastInvHash = '';
+    this.lastQuickHash = '__init__';
+    this.lastSquadHash = '__init__';
+    this.lastInvHash = '__init__';
     this.lastHeroClass = '';
   }
 
@@ -546,7 +546,7 @@ export class HudUI {
           if (pick.kind === 'synth') this.engine.actionSynthesize(pick.itemId);
           else if (pick.kind === 'upgrade' && pick.slotIdx !== undefined) this.engine.actionUpgradeSlot(true, pick.slotIdx);
           else this.engine.actionBuy(pick.itemId);
-          this.lastQuickHash = '';
+          this.lastQuickHash = '__dirty__';
           this.sync();
         };
       });

@@ -924,33 +924,42 @@ def build_derived_raster_fx(assets_dir: Path, raw_dir: Path) -> None:
                 gfpx[x, y] = (min(255, max(r, int(255 * falloff))), min(255, max(g, int(146 * falloff))), min(255, max(b, int(44 * falloff))), na)
         glow_fire.save(out("fx_glow_fire.png"), optimize=True)
 
-        # Ornate gold & rune Sanctuary Plaza Rim (512x512, ring at r = 216..244px)
-        plaza_rim = Image.new("RGBA", (512, 512), (0, 0, 0, 0))
-        rune_ring = aura_pal.resize((512, 512), Image.Resampling.LANCZOS).load()
-        cob_px = tile_cobble.load()
-        prpx = plaza_rim.load()
-        for y in range(512):
-            for x in range(512):
-                dx = x - 255.5
-                dy = y - 255.5
-                r = math.hypot(dx, dy)
-                if r < 214 or r > 246:
-                    continue
-                # Carved ring profile
-                t_rim = 1.0 - abs(r - 230.0) / 16.0
-                cr, cg, cb, _ = cob_px[x % 256, y % 256]
-                rr, rg, rb, ra = rune_ring[x, y]
-                rune_w = ra / 255.0
-                stone_tex = (0.3 * cr + 0.58 * cg + 0.12 * cb) / 255.0
-                bevel = 0.72 + 0.42 * math.sin((r - 214.0) / 32.0 * math.pi)
-                gold_r = min(255, int((155 + 75 * stone_tex) * bevel + rr * 0.35 * rune_w))
-                gold_g = min(255, int((118 + 60 * stone_tex) * bevel + rg * 0.32 * rune_w))
-                gold_b = min(255, int((44 + 28 * stone_tex) * bevel + rb * 0.12 * rune_w))
-                alpha = int(min(255, max(0.0, min(1.0, t_rim * 2.2)) * 245))
-                prpx[x, y] = (gold_r, gold_g, gold_b, alpha)
-        plaza_rim.save(out("fx_plaza_rim.png"), optimize=True)
+    # Always generate crisp 768x768 Sanctuary curb, portal biome halos, range / aoe / cancel aiming sprites
+    _tint_rgba(aura_arc, (255, 206, 78), gain=1.18).resize((192, 192), Image.Resampling.LANCZOS).save(out("fx_portal_gold.png"), optimize=True)
+    _tint_rgba(aura_arc, (255, 88, 48), gain=1.22).resize((192, 192), Image.Resampling.LANCZOS).save(out("fx_portal_fire.png"), optimize=True)
+    _tint_rgba(aura_arc, (62, 238, 138), gain=1.18).resize((192, 192), Image.Resampling.LANCZOS).save(out("fx_portal_emerald.png"), optimize=True)
 
-    # Always generate crisp range / aoe / cancel aiming sprites from cyan aim textures
+    # Chiseled dark slate-granite & subtle antique-bronze Sanctuary courtyard curb (768x768)
+    cob_px = tile_cobble.load()
+    plaza_rim = Image.new("RGBA", (768, 768), (0, 0, 0, 0))
+    rune_ring = aura_pal.resize((768, 768), Image.Resampling.LANCZOS).load()
+    prpx = plaza_rim.load()
+    for y in range(768):
+        for x in range(768):
+            dx = x - 383.5
+            dy = y - 383.5
+            r = math.hypot(dx, dy)
+            if r < 342 or r > 368:
+                continue
+            ang = math.atan2(dy, dx)
+            joint = abs(math.sin(ang * 20.0))
+            mortar = 0.72 if joint < 0.055 else 1.0
+            cr, cg, cb, _ = cob_px[x % 256, y % 256]
+            stone_lum = (0.3 * cr + 0.58 * cg + 0.12 * cb) / 255.0
+            bevel = (0.64 + 0.34 * math.sin((r - 342.0) / 26.0 * math.pi)) * mortar
+            rr, rg, rb, ra = rune_ring[x, y]
+            gold_thread = math.exp(-((r - 354.0) ** 2) / 2.8)
+            inlay = gold_thread * (0.45 + 0.35 * (ra / 255.0)) * mortar
+            sr = (52 + 54 * stone_lum) * bevel
+            sg = (58 + 56 * stone_lum) * bevel
+            sb = (66 + 60 * stone_lum) * bevel
+            gold_r = min(255, int(sr * (1.0 - inlay) + 194 * inlay))
+            gold_g = min(255, int(sg * (1.0 - inlay) + 150 * inlay))
+            gold_b = min(255, int(sb * (1.0 - inlay) + 64 * inlay))
+            edge_a = 1.0 if 345.0 <= r <= 364.0 else max(0.0, min((r - 342.0) / 3.0, (368.0 - r) / 4.0))
+            prpx[x, y] = (gold_r, gold_g, gold_b, min(255, int(edge_a * 246)))
+    plaza_rim.save(out("fx_plaza_rim.png"), optimize=True)
+
     aim_line_im = Image.open(out("fx_aim_line.png"))
     _tint_rgba(aim_line_im, (248, 82, 82), gain=1.08).save(out("fx_aim_line_cancel.png"), optimize=True)
     aim_cone_im = Image.open(out("fx_aim_cone.png"))
@@ -1032,35 +1041,36 @@ def build_derived_raster_fx(assets_dir: Path, raw_dir: Path) -> None:
     rh = rv.transpose(Image.Transpose.ROTATE_90)
     rh.save(out("tile_road_h.png"), optimize=True)
 
-    # 3. Carved circular Sanctuary Plaza Disc (512x512)
-    plaza = Image.new("RGBA", (512, 512), (0, 0, 0, 0))
+    # 3. High-resolution Carved Circular Sanctuary Courtyard Disc (768x768 -> zero upscaling blur)
+    plaza = Image.new("RGBA", (768, 768), (0, 0, 0, 0))
     p_px = plaza.load()
-    rim_src = Image.open(out("fx_plaza_rim.png")).convert("RGBA").resize((512, 512), Image.Resampling.LANCZOS).load()
-    for y in range(512):
-        for x in range(512):
-            dx = x - 255.5
-            dy = y - 255.5
+    rim_src = Image.open(out("fx_plaza_rim.png")).convert("RGBA").resize((768, 768), Image.Resampling.LANCZOS).load()
+    for y in range(768):
+        for x in range(768):
+            dx = x - 383.5
+            dy = y - 383.5
             r = math.hypot(dx, dy)
             ang = math.atan2(dy, dx)
-            # Organic carved masonry jitter on outer curb
-            wobble = math.sin(ang * 12.0) * 2.5 + math.cos(ang * 24.0) * 1.5
+            # Crisp stone masonry micro-relief instead of rubbery wobble
+            wobble = math.sin(ang * 20.0) * 0.9
             eff_r = r + wobble
-            if eff_r > 252.0:
+            if eff_r > 380.0:
                 continue
             cr, cg, cb, _ = cob_px[x % 256, y % 256]
-            # Slight warm center highlight near Athena + darkened outer curb
-            center_lift = 1.08 - 0.14 * (r / 250.0)
-            curb_dark = 0.68 if eff_r > 236.0 else 1.0
-            mr = min(255, int(cr * center_lift * curb_dark))
-            mg = min(255, int(cg * center_lift * curb_dark))
-            mb = min(255, int(cb * center_lift * curb_dark))
+            center_lift = 1.05 - 0.11 * (r / 368.0)
+            # Subtle inner sanctum ring around Athena pedestal + darkened outer curb transition
+            inner_inlay = math.exp(-((r - 78.0) ** 2) / 3.2) * 0.42
+            curb_dark = 0.62 if eff_r > 362.0 else 1.0
+            mr = min(255, int(cr * center_lift * curb_dark * (1.0 - inner_inlay) + 178 * inner_inlay))
+            mg = min(255, int(cg * center_lift * curb_dark * (1.0 - inner_inlay) + 140 * inner_inlay))
+            mb = min(255, int(cb * center_lift * curb_dark * (1.0 - inner_inlay) + 64 * inner_inlay))
             rr, rg, rb, ra = rim_src[x, y]
             if ra > 4:
                 rf = ra / 255.0
                 mr = int(mr * (1.0 - rf) + rr * rf)
                 mg = int(mg * (1.0 - rf) + rg * rf)
                 mb = int(mb * (1.0 - rf) + rb * rf)
-            edge_a = 1.0 if eff_r < 241.0 else max(0.0, (252.0 - eff_r) / 11.0)
+            edge_a = 1.0 if eff_r < 364.0 else max(0.0, (380.0 - eff_r) / 16.0) ** 1.3
             p_px[x, y] = (mr, mg, mb, int(edge_a * 255))
     plaza.save(out("tile_plaza_disc.png"), optimize=True)
 

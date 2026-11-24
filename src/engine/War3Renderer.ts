@@ -118,6 +118,36 @@ export class War3Renderer {
     this.drawCenteredSprite(ctx, IconAtlas.getSprite('fx_shadow_soft'), cx, cy, w, h, { alpha });
   }
 
+  private drawWorldLabel(
+    ctx: CanvasRenderingContext2D,
+    cx: number,
+    y: number,
+    text: string,
+    textColor: string,
+    borderColor = 'rgba(200, 162, 74, 0.55)',
+    fontSize = 11
+  ): void {
+    ctx.save();
+    ctx.font = `bold ${fontSize}px sans-serif`;
+    const padX = 7;
+    const w = Math.ceil(ctx.measureText(text).width) + padX * 2;
+    const h = fontSize + 7;
+    const x = Math.round(cx - w / 2);
+    const top = Math.round(y - h + 4);
+    ctx.fillStyle = 'rgba(8, 12, 20, 0.82)';
+    ctx.fillRect(x, top, w, h);
+    ctx.fillStyle = borderColor;
+    ctx.fillRect(x, top, w, 1);
+    ctx.fillRect(x, top + h - 1, w, 1);
+    ctx.fillRect(x, top, 1, h);
+    ctx.fillRect(x + w - 1, top, 1, h);
+    ctx.fillStyle = textColor;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, Math.round(cx), top + h / 2 + 0.5);
+    ctx.restore();
+  }
+
   public renderWorld(
     ctx: CanvasRenderingContext2D,
     world: GameWorldState,
@@ -174,25 +204,27 @@ export class War3Renderer {
     // 2. Sanctuary feathered dirt-and-stone roads, carved plaza disc & spawn gates
     this.renderSanctuaryTerrain(ctx, nowSec, minX, maxX, minY, maxY);
 
-    // 3. Portals (dual-layer counter-rotating AI runes)
+    // 3. Portals (dual-layer biome-tinted AI runes + engraved label pills)
     for (const p of PORTALS) {
       if (p.x < minX || p.x > maxX || p.y < minY || p.y > maxY) continue;
       const pulse = 1 + Math.sin(nowSec * 3.2) * 0.05;
       const sz = p.radius * 2.6 * pulse;
-      this.drawCenteredSprite(ctx, IconAtlas.getSprite('fx_aura_arcane'), p.x, p.y, sz * 1.18, sz * 1.18, {
+      const portalAuraKey =
+        p.toZone === 'gold_room'
+          ? 'fx_portal_gold'
+          : p.toZone === 'dungeon_fire'
+            ? 'fx_portal_fire'
+            : p.toZone === 'crystal_room'
+              ? 'fx_portal_emerald'
+              : 'fx_aura_arcane';
+      this.drawSoftShadow(ctx, p.x, p.y + p.radius * 0.6, sz * 0.9, sz * 0.45, 0.62);
+      this.drawCenteredSprite(ctx, IconAtlas.getSprite(portalAuraKey) || IconAtlas.getSprite('fx_aura_arcane'), p.x, p.y, sz * 1.18, sz * 1.18, {
         angle: nowSec * 0.9,
-        alpha: 0.42,
+        alpha: 0.5,
         additive: true,
       });
       this.drawCenteredSprite(ctx, IconAtlas.getSprite('struct_portal'), p.x, p.y, sz, sz);
-      ctx.fillStyle = '#fef3c7';
-      ctx.font = 'bold 12px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.strokeStyle = '#000';
-      ctx.lineWidth = 3;
-      ctx.strokeText(p.label, p.x, p.y + p.radius + 16);
-      ctx.fillText(p.label, p.x, p.y + p.radius + 16);
-      ctx.textAlign = 'left';
+      this.drawWorldLabel(ctx, p.x, p.y + p.radius + 17, p.label, '#fef3c7', `${p.color}aa`, 10.5);
     }
 
     // 4. Boss / Skill Ground Telegraphs (100% raster warning rings & storm overlays)
@@ -329,12 +361,22 @@ export class War3Renderer {
       this.renderEnemy(ctx, e, nowSec);
     }
 
-    // 10. Heroes (Y-sorted depth order)
+    // 10. Heroes (Y-sorted depth order with anti-overlap nameplate staggering)
     const visibleHeroes = world.heroes
       .filter((h) => h.x + 140 >= minX && h.x - 140 <= maxX && h.y + 140 >= minY && h.y - 140 <= maxY)
       .sort((a, b) => a.y - b.y);
+    const placedPlates: { x: number; y: number }[] = [];
     for (const h of visibleHeroes) {
-      this.renderHero(ctx, h, nowSec);
+      const scale = h.avatarTimer > 0 ? 1.32 : 1.0;
+      const basePlateY = h.y + 14 - 90 * scale * 0.88 - 16;
+      let lift = 0;
+      if (!h.dead) {
+        while (lift <= 44 && placedPlates.some((p) => Math.abs(p.x - h.x) < 74 && Math.abs(p.y - (basePlateY - lift)) < 24)) {
+          lift += 22;
+        }
+        placedPlates.push({ x: h.x, y: basePlateY - lift });
+      }
+      this.renderHero(ctx, h, nowSec, lift);
     }
 
     // 11. Projectiles (AI directional glow sprites + motion trail ghosts)
@@ -600,20 +642,15 @@ export class War3Renderer {
       }
     }
 
-    // Carved Circular Sanctuary Plaza Disc (zero vector clipping or flat yellow stroke)
+    // Carved Circular Sanctuary Courtyard Disc (768x768 stone courtyard enveloping portals & towers)
     const plazaDisc = IconAtlas.getSprite('tile_plaza_disc');
     if (plazaDisc) {
-      this.drawCenteredSprite(ctx, plazaDisc, ATHENA_POS.x, ATHENA_POS.y, 720, 720);
+      this.drawCenteredSprite(ctx, plazaDisc, ATHENA_POS.x, ATHENA_POS.y, 940, 940);
     } else {
       const cobble = this.getPattern(ctx, 'cobble');
       ctx.fillStyle = cobble || '#333b48';
-      ctx.fillRect(ATHENA_POS.x - 320, ATHENA_POS.y - 320, 640, 640);
+      ctx.fillRect(ATHENA_POS.x - 470, ATHENA_POS.y - 470, 940, 940);
     }
-    this.drawCenteredSprite(ctx, IconAtlas.getSprite('fx_aura_paladin'), ATHENA_POS.x, ATHENA_POS.y, 440, 440, {
-      angle: nowSec * 0.14,
-      alpha: 0.16,
-      additive: true,
-    });
 
     const gateImg = IconAtlas.getSprite('struct_spawn_gate');
     const riftSpr = IconAtlas.getSprite('fx_boss_aura');
@@ -625,13 +662,7 @@ export class War3Renderer {
         additive: true,
       });
       this.drawCenteredSprite(ctx, gateImg, lane.spawn.x, lane.spawn.y - 10, 112, 112);
-      ctx.fillStyle = '#fecaca';
-      ctx.strokeStyle = '#000000';
-      ctx.lineWidth = 3;
-      ctx.font = 'bold 12px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.strokeText(lane.name, lane.spawn.x, lane.spawn.y - 60);
-      ctx.fillText(lane.name, lane.spawn.x, lane.spawn.y - 60);
+      this.drawWorldLabel(ctx, lane.spawn.x, lane.spawn.y - 58, lane.name, '#fecaca', 'rgba(244, 63, 94, 0.58)', 11);
       ctx.restore();
     }
   }
@@ -658,13 +689,7 @@ export class War3Renderer {
         additive: true,
       });
     }
-    ctx.fillStyle = '#e0f2fe';
-    ctx.strokeStyle = '#000';
-    ctx.lineWidth = 3;
-    ctx.font = 'bold 12px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.strokeText('复活圣泉 (接水点)', FOUNTAIN_POS.x, FOUNTAIN_POS.y + 62);
-    ctx.fillText('复活圣泉 (接水点)', FOUNTAIN_POS.x, FOUNTAIN_POS.y + 62);
+    this.drawWorldLabel(ctx, FOUNTAIN_POS.x, FOUNTAIN_POS.y + 66, '复活圣泉 (接水点)', '#e0f2fe', 'rgba(56, 189, 248, 0.55)', 10.5);
 
     // 2. Water Altar
     this.drawSoftShadow(ctx, WATER_ALTAR_POS.x, WATER_ALTAR_POS.y + 30, 126, 52, 0.72);
@@ -674,9 +699,7 @@ export class War3Renderer {
       additive: true,
     });
     this.drawCenteredSprite(ctx, IconAtlas.getSprite('struct_water_altar'), WATER_ALTAR_POS.x, WATER_ALTAR_POS.y, 132, 132);
-    ctx.fillStyle = '#bae6fd';
-    ctx.strokeText('东郊圣水祭坛 (运水终点)', WATER_ALTAR_POS.x, WATER_ALTAR_POS.y - 68);
-    ctx.fillText('东郊圣水祭坛 (运水终点)', WATER_ALTAR_POS.x, WATER_ALTAR_POS.y - 68);
+    this.drawWorldLabel(ctx, WATER_ALTAR_POS.x, WATER_ALTAR_POS.y - 66, '东郊圣水祭坛 (运水终点)', '#bae6fd', 'rgba(56, 189, 248, 0.55)', 10.5);
 
     // 3. Towers
     const padImg = IconAtlas.getSprite('tower_base');
@@ -687,21 +710,9 @@ export class War3Renderer {
       if (t.type && t.level > 0) {
         const tImg = IconAtlas.getSprite(`tower_${t.type}`);
         this.drawCenteredSprite(ctx, tImg, t.x, t.y - 18, 88, 88);
-        ctx.fillStyle = '#fde047';
-        ctx.strokeStyle = '#000';
-        ctx.lineWidth = 3;
-        ctx.font = 'bold 11px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.strokeText(`Lv.${t.level}`, t.x, t.y + 34);
-        ctx.fillText(`Lv.${t.level}`, t.x, t.y + 34);
+        this.drawWorldLabel(ctx, t.x, t.y + 38, `Lv.${t.level}`, '#fde047', 'rgba(250, 204, 21, 0.55)', 10);
       } else {
-        ctx.fillStyle = '#cbd5e1';
-        ctx.strokeStyle = '#000';
-        ctx.lineWidth = 2.5;
-        ctx.font = 'bold 11px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.strokeText('塔基[G]', t.x, t.y + 30);
-        ctx.fillText('塔基[G]', t.x, t.y + 30);
+        this.drawWorldLabel(ctx, t.x, t.y + 35, '塔基 [G]', '#cbd5e1', 'rgba(148, 163, 184, 0.45)', 10);
       }
       ctx.restore();
     }
@@ -713,9 +724,9 @@ export class War3Renderer {
       IconAtlas.getSprite('fx_aura_paladin'),
       ATHENA_POS.x,
       ATHENA_POS.y + 24,
-      205,
-      120,
-      { angle: nowSec * 0.25, alpha: 0.45, additive: true }
+      188,
+      108,
+      { angle: nowSec * 0.25, alpha: 0.36, additive: true }
     );
     this.drawSoftShadow(ctx, ATHENA_POS.x, ATHENA_POS.y + 42, 144, 58, 0.78);
     this.drawCenteredSprite(ctx, IconAtlas.getSprite('struct_athena'), ATHENA_POS.x, ATHENA_POS.y - 14, 176, 176);
@@ -736,14 +747,18 @@ export class War3Renderer {
       });
     }
 
-    ctx.fillStyle = '#fef3c7';
-    ctx.strokeStyle = '#000';
-    ctx.lineWidth = 3;
-    ctx.font = 'bold 14px Georgia, serif';
-    ctx.textAlign = 'center';
-    ctx.strokeText(`雅典娜圣殿 Lv.${world.sanctuary.level}`, ATHENA_POS.x, ATHENA_POS.y - 100);
-    ctx.fillText(`雅典娜圣殿 Lv.${world.sanctuary.level}`, ATHENA_POS.x, ATHENA_POS.y - 100);
-    this.drawHpBar(ctx, ATHENA_POS.x, ATHENA_POS.y - 90, 128, 8, world.sanctuary.hp / world.sanctuary.maxHp, '#facc15');
+    this.drawWorldLabel(
+      ctx,
+      ATHENA_POS.x,
+      ATHENA_POS.y + 44,
+      `雅典娜圣殿 Lv.${world.sanctuary.level}`,
+      '#fef3c7',
+      'rgba(250, 204, 21, 0.72)',
+      11.5
+    );
+    if (world.sanctuary.hp < world.sanctuary.maxHp || world.sanctuary.shield > 0) {
+      this.drawHpBar(ctx, ATHENA_POS.x, ATHENA_POS.y + 52, 120, 7, world.sanctuary.hp / world.sanctuary.maxHp, '#facc15');
+    }
     ctx.restore();
   }
 
@@ -759,9 +774,20 @@ export class War3Renderer {
       });
     }
 
+    if (pr.kind === 'anvil') {
+      this.drawCenteredSprite(ctx, IconAtlas.getSprite('fx_glow_fire'), pr.x, pr.y - 6, 56, 56, {
+        alpha: 0.34 + Math.sin(nowSec * 6) * 0.08,
+        additive: true,
+      });
+    }
+
     const spriteKey = `prop_${pr.kind}`;
     const size = pr.kind === 'tree' ? 86 : pr.kind === 'tent' ? 84 : 62;
     this.drawCenteredSprite(ctx, IconAtlas.getSprite(spriteKey), pr.x, pr.y - 6, size, size);
+
+    if (pr.kind === 'anvil') {
+      this.drawWorldLabel(ctx, pr.x, pr.y + 30, '铁匠铺', '#fde68a', 'rgba(250, 204, 21, 0.55)', 10.5);
+    }
 
     if (pr.kind === 'brazier') {
       const fSz = 114 + Math.sin(nowSec * 9 + pr.x) * 12;
@@ -839,6 +865,14 @@ export class War3Renderer {
       ctx.restore();
     }
 
+    if (e.burnTimer > 0) {
+      this.drawCenteredSprite(ctx, IconAtlas.getSprite('fx_glow_fire'), e.x, e.y - 2, e.radius * 2.0, e.radius * 2.0, {
+        angle: nowSec * 3.5,
+        alpha: 0.48,
+        additive: true,
+      });
+    }
+
     if (e.stunTimer > 0) {
       this.drawCenteredSprite(ctx, IconAtlas.getSprite('fx_status_stun'), e.x, e.y - drawSz * 0.55 - 16, 38, 26, {
         angle: nowSec * 4.2,
@@ -853,8 +887,18 @@ export class War3Renderer {
     }
 
     const barW = e.isBoss ? 98 : e.isMiniBoss ? 56 : 38;
+    const barH = e.isBoss ? 8 : 5;
     const barY = e.y - drawSz * 0.55 - 8 - hop;
-    this.drawHpBar(ctx, e.x, barY, barW, e.isBoss ? 8 : 5, e.hp / e.maxHp, e.isBoss ? '#f43f5e' : '#ef4444');
+    this.drawHpBar(ctx, e.x, barY, barW, barH, e.hp / e.maxHp, e.isBoss ? '#f43f5e' : '#ef4444');
+    if (e.shield > 0) {
+      const shR = Math.min(1, e.shield / Math.max(1, e.maxHp));
+      ctx.fillStyle = 'rgba(125, 211, 252, 0.88)';
+      ctx.fillRect(e.x - barW / 2, barY, barW * shR, 2.5);
+    }
+    if (e.armorShredTimer > 0) {
+      ctx.fillStyle = '#fb923c';
+      ctx.fillRect(e.x - barW / 2, barY + barH + 1, barW, 2);
+    }
     if (e.isBoss || e.isMiniBoss) {
       ctx.fillStyle = '#fef3c7';
       ctx.strokeStyle = '#000';
@@ -876,7 +920,7 @@ export class War3Renderer {
     return 'idle';
   }
 
-  private renderHero(ctx: CanvasRenderingContext2D, h: HeroEntity, nowSec: number): void {
+  private renderHero(ctx: CanvasRenderingContext2D, h: HeroEntity, nowSec: number, nameplateLift = 0): void {
     const def = getHeroClassDef(h.classId);
     const scale = h.avatarTimer > 0 ? 1.32 : 1.0;
     const r = 20 * scale;
@@ -898,7 +942,7 @@ export class War3Renderer {
 
     if (h.stealthTimer > 0) ctx.globalAlpha = 0.45;
 
-    // 1. Rotating AI Runic Ground Aura + crisp raster Selection Rune Ring
+    // 1. Soft Rotating AI Runic Ground Aura + crisp raster Selection Rune Ring
     const auraKey =
       h.classId === 'paladin' || h.classId === 'priest'
         ? 'fx_aura_paladin'
@@ -912,16 +956,16 @@ export class War3Renderer {
       ctx.scale(1, 0.56);
       ctx.rotate(nowSec * 0.9);
       ctx.globalCompositeOperation = 'lighter';
-      ctx.globalAlpha = h.isLocal ? 0.52 : 0.34;
-      const auraSz = 88 * scale;
+      ctx.globalAlpha = h.isLocal ? 0.34 : 0.18;
+      const auraSz = 82 * scale;
       ctx.drawImage(auraSpr, -auraSz / 2, -auraSz / 2, auraSz, auraSz);
       ctx.restore();
     }
 
     const selRingKey = h.isLocal ? 'fx_ring_local' : 'fx_ring_ally';
-    this.drawCenteredSprite(ctx, IconAtlas.getSprite(selRingKey), h.x, h.y + 11, (r + 12) * 2.1, (r + 12) * 1.15, {
+    this.drawCenteredSprite(ctx, IconAtlas.getSprite(selRingKey), h.x, h.y + 11, (r + 9) * 2.05, (r + 9) * 1.1, {
       angle: -nowSec * 0.55,
-      alpha: h.isLocal ? 0.85 : 0.65,
+      alpha: h.isLocal ? 0.78 : 0.5,
       additive: true,
     });
 
@@ -1042,10 +1086,11 @@ export class War3Renderer {
       this.drawHpBar(ctx, h.x, h.y + r + 16, 48, 5, 1 - h.recallTimer / 1.6, '#38bdf8');
     }
 
-    // 4. Sculpted War3 Hero Nameplate
+    // 4. Sculpted War3 Hero Nameplate (compact left-attached Lv badge + anti-overlap lift)
     ctx.globalAlpha = 1;
-    const tag = `${h.carryingWater ? '💧 ' : ''}Lv.${h.level} ${h.callsign}`;
-    const topY = footY - drawSz * 0.88 - 16;
+    const displayName = h.callsign.startsWith('圣殿勇者-') ? def.name : h.callsign;
+    const tag = `${h.carryingWater ? '💧 ' : ''}${displayName}`;
+    const topY = footY - drawSz * 0.88 - 16 - nameplateLift;
     ctx.fillStyle = h.isLocal ? '#fde047' : '#e2e8f0';
     ctx.strokeStyle = '#000';
     ctx.lineWidth = 2.6;
@@ -1054,26 +1099,37 @@ export class War3Renderer {
     ctx.strokeText(tag, h.x, topY);
     ctx.fillText(tag, h.x, topY);
 
-    // Metallic bevel nameplate track
-    const barW = 58;
+    const lvW = 18;
+    const barW = 52;
+    const totalW = lvW + barW;
+    const leftX = h.x - totalW / 2;
+    const trackY = topY + 4;
     const hpRatio = h.hp / Math.max(1, h.stats.maxHp);
-    ctx.fillStyle = '#785b22';
-    ctx.fillRect(h.x - barW / 2 - 3, topY + 3, barW + 6, 14);
-    ctx.fillStyle = '#090d16';
-    ctx.fillRect(h.x - barW / 2 - 2, topY + 4, barW + 4, 12);
 
-    this.drawHpBar(ctx, h.x, topY + 6, barW, 5, hpRatio, h.isLocal ? '#22c55e' : '#4ade80');
+    ctx.fillStyle = h.isLocal ? '#b4821e' : '#475569';
+    ctx.fillRect(leftX - 2, trackY - 1, totalW + 4, 14);
+    ctx.fillStyle = '#090d16';
+    ctx.fillRect(leftX - 1, trackY, totalW + 2, 12);
+
+    ctx.fillStyle = h.isLocal ? '#3b2809' : '#1e293b';
+    ctx.fillRect(leftX, trackY + 1, lvW - 1, 10);
+    ctx.fillStyle = h.isLocal ? '#fde047' : '#cbd5e1';
+    ctx.font = 'bold 9px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${h.level}`, leftX + (lvW - 1) / 2, trackY + 9);
+
+    const barCenterX = leftX + lvW + barW / 2;
+    this.drawHpBar(ctx, barCenterX, trackY + 2, barW, 5, hpRatio, h.isLocal ? '#22c55e' : '#4ade80');
     if (h.shield > 0) {
       const shRatio = Math.min(1, h.shield / Math.max(1, h.stats.maxHp));
-      ctx.fillStyle = 'rgba(224, 242, 254, 0.78)';
-      ctx.fillRect(h.x - barW / 2, topY + 6, barW * shRatio, 2);
+      ctx.fillStyle = 'rgba(224, 242, 254, 0.84)';
+      ctx.fillRect(leftX + lvW, trackY + 2, barW * shRatio, 2);
     }
-    this.drawHpBar(ctx, h.x, topY + 12, barW, 3, h.mp / Math.max(1, h.stats.maxMp), '#38bdf8');
+    this.drawHpBar(ctx, barCenterX, trackY + 8, barW, 3, h.mp / Math.max(1, h.stats.maxMp), '#38bdf8');
 
-    // Subtle 25/50/75 HP bar ticks
     ctx.fillStyle = 'rgba(0,0,0,0.45)';
     for (let t = 1; t < 4; t++) {
-      ctx.fillRect(Math.round(h.x - barW / 2 + (barW * t) / 4), topY + 6, 1, 5);
+      ctx.fillRect(Math.round(leftX + lvW + (barW * t) / 4), trackY + 2, 1, 5);
     }
     ctx.restore();
   }
@@ -1157,7 +1213,7 @@ export class War3Renderer {
     ctx.fillRect(1310 * sx, 2040 * sy, 2240 * sx, 120 * sy);
     const plazaSpr = IconAtlas.getSprite('tile_plaza_disc');
     if (plazaSpr) {
-      this.drawCenteredSprite(ctx, plazaSpr, ATHENA_POS.x * sx, ATHENA_POS.y * sy, 680 * sx, 680 * sy, { alpha: 0.72 });
+      this.drawCenteredSprite(ctx, plazaSpr, ATHENA_POS.x * sx, ATHENA_POS.y * sy, 940 * sx, 940 * sy, { alpha: 0.72 });
     }
 
     // Towers

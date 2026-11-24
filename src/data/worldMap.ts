@@ -6,6 +6,12 @@ export const WORLD_HEIGHT = 4200;
 export const ATHENA_POS = { x: 2100, y: 2100, radius: 56 };
 export const FOUNTAIN_POS = { x: 2100, y: 2310, radius: 84 };
 export const HERO_SPAWN_POS = { x: 2100, y: 2215 };
+export const HERO_FORMATION_OFFSETS: { x: number; y: number }[] = [
+  { x: 0, y: 26 },
+  { x: -102, y: 12 },
+  { x: 102, y: 12 },
+  { x: 0, y: 54 },
+];
 export const WATER_ALTAR_POS = { x: 3540, y: 2150, radius: 66 };
 
 // 3 路刷怪口与标准路径航点（确保绕开祭坛建筑直接朝圣殿推进）
