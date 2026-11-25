@@ -10,6 +10,7 @@ import {
   applyDamageToEnemy,
   applyDamageToHero,
   castHeroSkill,
+  maybeTriggerOrbChain,
   performBasicAttack,
 } from './CombatSystem';
 import { buyItem, getQuickBuyOptions, synthesizeItem, upgradeItemInSlot, usePotionSlot } from './EconomySystem';
@@ -80,7 +81,7 @@ export function updateWaveDirector(
       world.waveSpawnCooldown -= dt;
       if (world.waveSpawnCooldown <= 0) {
         const waveDef = getWaveDef(world.wave);
-        const batch = Math.min(6, world.waveSpawnQueue.length);
+        const batch = Math.min(world.wave <= 2 ? 3 : 6, world.waveSpawnQueue.length);
         for (let i = 0; i < batch; i++) {
           const item = world.waveSpawnQueue.shift()!;
           const lane = WAVE_LANES[item.laneId % WAVE_LANES.length];
@@ -99,7 +100,7 @@ export function updateWaveDirector(
             lane.id
           );
         }
-        world.waveSpawnCooldown = world.wave >= 8 ? 0.62 : 0.72;
+        world.waveSpawnCooldown = world.wave <= 3 ? 0.92 : world.wave >= 8 ? 0.62 : 0.72;
       }
     } else {
       const waveLeft = world.enemies.some(
@@ -533,6 +534,7 @@ export function updateTelegraphsAndProjectiles(world: GameWorldState, dt: number
               }
             }
             world.vfx.push({ kind: 'explosion', x: p.x, y: p.y, radius: p.aoeRadius, color: p.color, life: 0.3, maxLife: 0.3 });
+            if (p.canTriggerOrb) maybeTriggerOrbChain(world, attacker, e, onKilled);
             consumed = true;
             break;
           } else {
@@ -544,6 +546,9 @@ export function updateTelegraphsAndProjectiles(world: GameWorldState, dt: number
               canCrit: true,
               onEnemyKilled: onKilled,
             });
+            if (p.canTriggerOrb && p.hitIds.length === 1) {
+              maybeTriggerOrbChain(world, attacker, e, onKilled);
+            }
             if (p.pierceLeft <= 0) {
               consumed = true;
               break;

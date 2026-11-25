@@ -82,6 +82,9 @@ export interface StatBlock {
   attackRange: number;
   damageReduce: number; // 0..0.65
   thorns: number; // flat/pct reflected damage
+  cleave?: number; // War3 Cleaving Attack ratio (0 = single-target)
+  splashRadius?: number; // War3 Orb/caster AoE splash radius in px (0 = single-target)
+  orbChainChance?: number; // War3 Orb of Lightning chain trigger probability (0..0.75)
 }
 
 export type ItemRarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary' | 'mythic';

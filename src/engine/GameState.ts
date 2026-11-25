@@ -269,6 +269,7 @@ export interface Projectile {
   slowPct?: number;
   burnDps?: number;
   aoeRadius?: number;
+  canTriggerOrb?: boolean;
   targetAthena?: boolean;
 }
 

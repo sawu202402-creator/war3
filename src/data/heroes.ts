@@ -242,7 +242,7 @@ export const HERO_CLASSES: HeroClassDef[] = [
       atkSpeed: 0.055,
     },
     passiveName: '剑道致命',
-    passiveDesc: '每第 3 次普通攻击必定触发致命暴击（造成 150% 额外顺劈斩击）。',
+    passiveDesc: '每第 3 次普通攻击必触发致命一击（造成 2.0 倍单体暴击）；装备锻造分裂武器后顺劈周围敌群。',
     skills: [
       {
         slot: 0,
@@ -506,7 +506,7 @@ export const HERO_CLASSES: HeroClassDef[] = [
       atkSpeed: 0.065,
     },
     passiveName: '多重星矢',
-    passiveDesc: '普攻自动分裂射出额外追踪箭矢（基础 +1 箭，每 8 级额外 +1 箭，最高 4 箭齐发）。',
+    passiveDesc: '1 级单发点射；4 / 8 / 14 级起普攻分别解锁 2 / 3 / 4 支多重分裂箭（觉醒苍穹神射再 +2 箭）。',
     skills: [
       {
         slot: 0,
