@@ -114,7 +114,7 @@ export function updateWaveDirector(
         // Wave cleared!
         SaveManager.addDailyProgress('waves', 1);
         for (const h of world.heroes) {
-          h.gold += 110 + world.wave * 24;
+          h.gold += 80 + world.wave * 18;
           if (world.wave % 3 === 0) h.crystal += 1;
         }
         if (world.wave === 20 && !world.endlessMode) {
@@ -372,7 +372,7 @@ function triggerBossAbility(world: GameWorldState, boss: EnemyEntity): void {
   const ty = nearest ? nearest.y : boss.zoneId === 'sanctuary' ? ATHENA_POS.y : boss.y;
 
   if (boss.kind === 'boss_skeleton_king') {
-    boss.bossAbilityTimer = 6.5;
+    boss.bossAbilityTimer = 5.0;
     world.telegraphs.push({
       id: world.nextEntityId++,
       fromEnemy: true,
@@ -382,18 +382,19 @@ function triggerBossAbility(world: GameWorldState, boss: EnemyEntity): void {
       x: boss.x,
       y: boss.y,
       radius: 175,
-      timer: 1.25,
-      maxTimer: 1.25,
+      timer: 1.05,
+      maxTimer: 1.05,
       tickTimer: 99,
-      damage: boss.dmg * 2.1,
+      damage: boss.dmg * 2.4,
       color: '#38bdf8',
     });
-    if (world.enemies.filter((x) => x.zoneId === boss.zoneId).length < 18) {
-      spawnEnemy(world, 'skeleton_archer', boss.zoneId, boss.x - 60, boss.y + 40, Math.max(1, world.wave * 0.3), 1);
-      spawnEnemy(world, 'skeleton_archer', boss.zoneId, boss.x + 60, boss.y + 40, Math.max(1, world.wave * 0.3), 1);
+    if (world.enemies.filter((x) => x.zoneId === boss.zoneId).length < 24) {
+      spawnEnemy(world, 'skeleton_archer', boss.zoneId, boss.x - 65, boss.y + 40, Math.max(1.2, world.wave * 0.35), 1.15);
+      spawnEnemy(world, 'skeleton_archer', boss.zoneId, boss.x + 65, boss.y + 40, Math.max(1.2, world.wave * 0.35), 1.15);
+      spawnEnemy(world, 'skeleton_archer', boss.zoneId, boss.x, boss.y + 70, Math.max(1.2, world.wave * 0.35), 1.15);
     }
   } else if (boss.kind === 'boss_abyss_lord') {
-    boss.bossAbilityTimer = 5.5;
+    boss.bossAbilityTimer = 4.2;
     world.telegraphs.push({
       id: world.nextEntityId++,
       fromEnemy: true,
@@ -405,32 +406,13 @@ function triggerBossAbility(world: GameWorldState, boss: EnemyEntity): void {
       radius: 155,
       timer: 4.5,
       maxTimer: 4.5,
-      tickTimer: 0.4,
-      damage: boss.dmg * 0.55,
+      tickTimer: 0.35,
+      damage: boss.dmg * 0.72,
       color: '#a855f7',
     });
   } else if (boss.kind === 'boss_frost_wyrm') {
-    boss.bossAbilityTimer = 5.0;
-    boss.shield = Math.max(boss.shield, boss.maxHp * 0.08);
-    for (let k = 0; k < 2; k++) {
-      world.telegraphs.push({
-        id: world.nextEntityId++,
-        fromEnemy: true,
-        ownerId: `boss_${boss.id}`,
-        zoneId: boss.zoneId,
-        kind: 'enemy_aoe',
-        x: tx + (k === 0 ? 0 : (Math.random() - 0.5) * 200),
-        y: ty + (k === 0 ? 0 : (Math.random() - 0.5) * 200),
-        radius: 145,
-        timer: 1.35,
-        maxTimer: 1.35,
-        tickTimer: 99,
-        damage: boss.dmg * 2.25,
-        color: '#67e8f9',
-      });
-    }
-  } else if (boss.kind === 'boss_doom_overlord' || boss.kind === 'boss_hidden_chaos') {
-    boss.bossAbilityTimer = boss.hp < boss.maxHp * 0.5 ? 3.8 : 5.0;
+    boss.bossAbilityTimer = 4.0;
+    boss.shield = Math.max(boss.shield, boss.maxHp * 0.1);
     for (let k = 0; k < 3; k++) {
       world.telegraphs.push({
         id: world.nextEntityId++,
@@ -438,19 +420,38 @@ function triggerBossAbility(world: GameWorldState, boss: EnemyEntity): void {
         ownerId: `boss_${boss.id}`,
         zoneId: boss.zoneId,
         kind: 'enemy_aoe',
-        x: tx + (Math.random() - 0.5) * 240,
-        y: ty + (Math.random() - 0.5) * 240,
-        radius: 150,
-        timer: 1.2,
-        maxTimer: 1.2,
+        x: tx + (k === 0 ? 0 : (Math.random() - 0.5) * 220),
+        y: ty + (k === 0 ? 0 : (Math.random() - 0.5) * 220),
+        radius: 145,
+        timer: 1.15,
+        maxTimer: 1.15,
         tickTimer: 99,
-        damage: boss.dmg * 2.4,
+        damage: boss.dmg * 2.5,
+        color: '#67e8f9',
+      });
+    }
+  } else if (boss.kind === 'boss_doom_overlord' || boss.kind === 'boss_hidden_chaos') {
+    boss.bossAbilityTimer = boss.hp < boss.maxHp * 0.5 ? 3.2 : 4.2;
+    for (let k = 0; k < 4; k++) {
+      world.telegraphs.push({
+        id: world.nextEntityId++,
+        fromEnemy: true,
+        ownerId: `boss_${boss.id}`,
+        zoneId: boss.zoneId,
+        kind: 'enemy_aoe',
+        x: tx + (Math.random() - 0.5) * 260,
+        y: ty + (Math.random() - 0.5) * 260,
+        radius: 150,
+        timer: 1.05,
+        maxTimer: 1.05,
+        tickTimer: 99,
+        damage: boss.dmg * 2.6,
         color: '#f43f5e',
       });
     }
   } else {
     // Elemental dungeon bosses
-    boss.bossAbilityTimer = 5.5;
+    boss.bossAbilityTimer = 4.5;
     world.telegraphs.push({
       id: world.nextEntityId++,
       fromEnemy: true,
@@ -460,10 +461,10 @@ function triggerBossAbility(world: GameWorldState, boss: EnemyEntity): void {
       x: tx,
       y: ty,
       radius: 145,
-      timer: 1.15,
-      maxTimer: 1.15,
+      timer: 1.0,
+      maxTimer: 1.0,
       tickTimer: 99,
-      damage: boss.dmg * 2.0,
+      damage: boss.dmg * 2.35,
       color: boss.accentColor,
     });
   }
@@ -736,7 +737,7 @@ export function updateBotHeroes(world: GameWorldState, dt: number): void {
 
     bot.botDecisionTimer -= dt;
     if (bot.botDecisionTimer <= 0) {
-      bot.botDecisionTimer = 1.6;
+      bot.botDecisionTimer = 2.4;
       // Auto upgrade / synthesize / buy gear
       const quick = getQuickBuyOptions(world, bot);
       if (quick.length > 0) {
@@ -768,13 +769,16 @@ export function updateBotHeroes(world: GameWorldState, dt: number): void {
       const d = Math.hypot(dx, dy) || 1;
       const def = getHeroClassDef(bot.classId);
 
-      // Cast ready skills
-      for (let s = 3; s >= 0; s--) {
-        const sk = def.skills[s];
-        if (bot.skillCds[s] <= 0 && bot.mp >= sk.manaCost && (!sk.unlockLevel || bot.level >= sk.unlockLevel)) {
-          if (d <= sk.range + 40) {
-            if (castHeroSkill(world, bot, s, dx / d, dy / d, Math.min(1, d / Math.max(1, sk.range)), onKilled)) {
-              break;
+      // Cast ready skills (staggered so bots don't insta-wipe early waves)
+      if (bot.castAnim <= 0) {
+        for (let s = 3; s >= 0; s--) {
+          const sk = def.skills[s];
+          if (bot.skillCds[s] <= 0 && bot.mp >= sk.manaCost && (!sk.unlockLevel || bot.level >= sk.unlockLevel)) {
+            if (d <= sk.range + 40) {
+              if (castHeroSkill(world, bot, s, dx / d, dy / d, Math.min(1, d / Math.max(1, sk.range)), onKilled)) {
+                bot.castAnim = 1.2;
+                break;
+              }
             }
           }
         }

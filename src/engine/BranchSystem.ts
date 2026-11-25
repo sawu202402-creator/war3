@@ -26,17 +26,17 @@ export function spawnEnemy(
   const isWaveMob = zoneId === 'sanctuary';
   const isStandardWaveCreep =
     isWaveMob && !arch.isBoss && !arch.isMiniBoss && kind !== 'treasure_goblin' && kind !== 'wandering_elite';
-  const coopHpScale = 1 + (world.playerCount - 1) * 0.42;
-  const coopDmgScale = 1 + (world.playerCount - 1) * 0.1;
+  const coopHpScale = 1 + (world.playerCount - 1) * 0.58;
+  const coopDmgScale = 1 + (world.playerCount - 1) * 0.22;
 
   const finalHp = Math.round(
     arch.baseHp *
       hpMult *
       tierMult *
       diff.hpMult *
-      (isWaveMob ? coopHpScale : 1 + (world.playerCount - 1) * 0.22) *
-      (isStandardWaveCreep ? 0.68 : 1) *
-      (splitGen > 0 ? 0.42 : 1)
+      (isWaveMob ? coopHpScale : 1 + (world.playerCount - 1) * 0.32) *
+      (arch.isBoss ? 1.35 : isStandardWaveCreep ? 1.05 : 1.15) *
+      (splitGen > 0 ? 0.48 : 1)
   );
   const finalDmg = Math.round(
     arch.baseDmg *
@@ -44,7 +44,7 @@ export function spawnEnemy(
       Math.sqrt(tierMult) *
       diff.dmgMult *
       coopDmgScale *
-      (isStandardWaveCreep ? 0.72 : 1)
+      (arch.isBoss ? 1.3 : isStandardWaveCreep ? 1.0 : 1.15)
   );
 
   const e: EnemyEntity = {
@@ -80,14 +80,14 @@ export function spawnEnemy(
         arch.goldReward *
           tierMult *
           diff.rewardMult *
-          (isStandardWaveCreep ? 0.58 : 1) *
+          (isStandardWaveCreep ? 0.62 : 1) *
           (splitGen > 0 ? 0.35 : 1)
       )
     ),
     crystalReward: arch.crystalReward ? Math.round(arch.crystalReward * (tierMult >= 2 ? 1.5 : 1)) : 0,
     xpReward: Math.max(
       4,
-      Math.round(arch.xpReward * tierMult * (isStandardWaveCreep ? 0.58 : 1) * (splitGen > 0 ? 0.35 : 1))
+      Math.round(arch.xpReward * tierMult * (isStandardWaveCreep ? 0.65 : 1) * (splitGen > 0 ? 0.35 : 1))
     ),
     color: arch.color,
     accentColor: arch.accentColor,
@@ -183,7 +183,7 @@ export function handleEnemyDeathDrops(world: GameWorldState, enemy: EnemyEntity,
   // Credit kills, mana siphon, Musou combo & exclusive growth
   if (killer) {
     killer.kills += 1;
-    killer.mp = Math.min(killer.stats.maxMp, killer.mp + (enemy.isBoss ? 14 : 3));
+    killer.mp = Math.min(killer.stats.maxMp, killer.mp + (enemy.isBoss ? 8 : 1.5));
     killer.comboCount += 1;
     killer.comboTimer = 5.2;
     if (killer.comboCount > killer.comboPeak) killer.comboPeak = killer.comboCount;
@@ -399,16 +399,16 @@ export function updateBranches(world: GameWorldState, dt: number): void {
 
     world.trainingSpawnTimer[zid] -= dt;
     if (world.trainingSpawnTimer[zid] <= 0) {
-      world.trainingSpawnTimer[zid] = zid === 'stone_mine' ? 2.4 : 0.95;
+      world.trainingSpawnTimer[zid] = zid === 'stone_mine' ? 2.8 : 1.25;
       const existing = world.enemies.filter((e) => e.zoneId === zid && e.hp > 0).length;
-      const cap = zid === 'stone_mine' ? 5 : 15;
+      const cap = zid === 'stone_mine' ? 4 : 11;
       const spawnBatch = Math.min(cap - existing, zid === 'stone_mine' ? 1 : 2);
       for (let s = 0; s < spawnBatch; s++) {
         const rect = ZONES[zid].rect;
         const sx = rect.x + 220 + Math.random() * (rect.w - 300);
         const sy = rect.y + 100 + Math.random() * (rect.h - 200);
         const tier = zid === 'stone_mine' ? 1 : world.trainingTiers[zid];
-        const tierMult = tier === 1 ? 1.0 : tier === 2 ? 3.2 : 8.5;
+        const tierMult = tier === 1 ? 1.0 : tier === 2 ? 3.5 : 9.2;
         const kind: EnemyKind =
           zid === 'gold_room'
             ? 'train_gold_mob'
@@ -417,7 +417,7 @@ export function updateBranches(world: GameWorldState, dt: number): void {
               : zid === 'crystal_room'
                 ? 'train_crystal_mob'
                 : 'mine_golem';
-        spawnEnemy(world, kind, zid, sx, sy, 1 + world.wave * 0.18, 1 + world.wave * 0.1, tierMult);
+        spawnEnemy(world, kind, zid, sx, sy, 1.45 + world.wave * 0.34, 1.45 + world.wave * 0.22, tierMult);
       }
     }
   }

@@ -105,7 +105,7 @@ export class GameEngine {
     const isCoop = Boolean(opts.coopRoster && opts.coopRoster.length > 0);
     const playersCount = isCoop ? opts.coopRoster!.length : 1 + opts.aiSquadCount;
 
-    const baseSanctuaryHp = Math.round(5200 * (1 + save.talents.reviveFast * 0.08) * (1 + (playersCount - 1) * 0.2));
+    const baseSanctuaryHp = Math.round(3600 * (1 + save.talents.reviveFast * 0.08) * (1 + (playersCount - 1) * 0.14));
     const heroes: HeroEntity[] = [];
 
     if (isCoop && opts.coopRoster) {
@@ -165,8 +165,8 @@ export class GameEngine {
       sanctuary: {
         hp: baseSanctuaryHp,
         maxHp: baseSanctuaryHp,
-        armor: 10,
-        hpRegen: 6,
+        armor: 7,
+        hpRegen: 3.0,
         shield: 0,
         level: 1,
         invulnTimer: 0,
@@ -246,7 +246,7 @@ export class GameEngine {
   }): HeroEntity {
     const def = getHeroClassDef(opts.classId);
     const save = SaveManager.get();
-    const startGold = 320 + save.talents.startGold * 120 + (opts.difficulty >= 3 ? 120 : 0);
+    const startGold = 200 + save.talents.startGold * 120 + (opts.difficulty >= 3 ? 100 : 0);
     const spawnOff = HERO_FORMATION_OFFSETS[opts.slot % HERO_FORMATION_OFFSETS.length];
     const spawnX = HERO_SPAWN_POS.x + spawnOff.x;
     const spawnY = HERO_SPAWN_POS.y + spawnOff.y;
@@ -276,7 +276,7 @@ export class GameEngine {
       stones: 0,
       ankhs: 0,
       potions: { hp: 'pot_hp_s', mp: 'pot_mp', tactical: 'pot_invuln' },
-      potionCharges: { hp: 3, mp: 2, tactical: 0 },
+      potionCharges: { hp: 2, mp: 1, tactical: 0 },
       potionCds: { hp: 0, mp: 0, tactical: 0 },
       hp: def.baseStats.maxHp,
       mp: def.baseStats.maxMp,
@@ -532,7 +532,7 @@ export class GameEngine {
         h.consecrateTimer -= dt;
         if (Math.floor(h.consecrateTimer * 2) !== prev) {
           const mult = h.awakeningBranchId === 'pal_retribution' ? 1.55 : 1.0;
-          const dmg = (42 + h.level * 16 + h.stats.ap * 0.42 + h.stats.ad * 0.25) * mult;
+          const dmg = (28 + h.level * 13 + h.stats.ap * 0.34 + h.stats.ad * 0.2) * mult;
           for (const e of world.enemies) {
             if (e.zoneId === h.zoneId && e.hp > 0 && Math.hypot(e.x - h.x, e.y - h.y) <= 240) {
               if (!e.isBoss) {
@@ -550,7 +550,7 @@ export class GameEngine {
         const prev = Math.floor(h.bladestormTimer * 3);
         h.bladestormTimer -= dt;
         if (Math.floor(h.bladestormTimer * 3) !== prev) {
-          const dmg = 52 + h.level * 20 + h.stats.ad * 0.68;
+          const dmg = 34 + h.level * 15 + h.stats.ad * 0.48;
           for (const e of world.enemies) {
             if (e.zoneId === h.zoneId && e.hp > 0 && Math.hypot(e.x - h.x, e.y - h.y) <= 215 + e.radius) {
               applyDamageToEnemy(world, e, dmg, {

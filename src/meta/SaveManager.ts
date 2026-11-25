@@ -60,7 +60,7 @@ function createDefaultSave(): SaveData {
     totalClears: 0,
     rightClickMove: false,
     hudMode: 'auto',
-    aiSquadCount: 1,
+    aiSquadCount: 0,
     daily: {
       dateKey: getTodayKey(),
       lastSignDate: '',
