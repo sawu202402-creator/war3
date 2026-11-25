@@ -3,64 +3,70 @@ import { PortalDef, Rect, TowerSlotDef, WorldPropDef, ZoneDef, ZoneId } from '..
 export const WORLD_WIDTH = 4200;
 export const WORLD_HEIGHT = 4200;
 
-export const ATHENA_POS = { x: 2100, y: 2100, radius: 56 };
-export const FOUNTAIN_POS = { x: 2100, y: 2310, radius: 84 };
+export const CONVERGENCE_POS = { x: 2100, y: 1890, radius: 118 };
+export const ATHENA_POS = { x: 2100, y: 2460, radius: 56 };
+export const FOUNTAIN_POS = { x: 2330, y: 2460, radius: 84 };
 export const HERO_SPAWN_POS = { x: 2100, y: 2215 };
 export const HERO_FORMATION_OFFSETS: { x: number; y: number }[] = [
-  { x: 0, y: 26 },
-  { x: -102, y: 12 },
-  { x: 102, y: 12 },
+  { x: 0, y: 0 },
+  { x: -96, y: 22 },
+  { x: 96, y: 22 },
   { x: 0, y: 54 },
 ];
-export const WATER_ALTAR_POS = { x: 3540, y: 2150, radius: 66 };
+export const WATER_ALTAR_POS = { x: 3540, y: 2460, radius: 66 };
 
-// 3 路刷怪口与标准路径航点（确保绕开祭坛建筑直接朝圣殿推进）
+// 一方向三列并行出兵：左/中/右三路北军于【北关汇合隘口】收束汇合后直攻雅典娜圣殿
 export const WAVE_LANES: { id: number; name: string; spawn: { x: number; y: number }; waypoints: { x: number; y: number }[] }[] = [
   {
     id: 0,
-    name: '北门圣道',
-    spawn: { x: 2100, y: 1295 },
+    name: '北境左列',
+    spawn: { x: 1760, y: 1320 },
     waypoints: [
-      { x: 2100, y: 1580 },
-      { x: 2100, y: 1850 },
-      { x: 2100, y: 2100 },
+      { x: 1760, y: 1580 },
+      { x: 1860, y: 1740 },
+      { x: 2100, y: 1890 },
+      { x: 2100, y: 2165 },
+      { x: 2100, y: 2460 },
     ],
   },
   {
     id: 1,
-    name: '西门荒原',
-    spawn: { x: 1320, y: 2100 },
+    name: '北境中列',
+    spawn: { x: 2100, y: 1320 },
     waypoints: [
-      { x: 1620, y: 2100 },
-      { x: 1880, y: 2100 },
-      { x: 2100, y: 2100 },
+      { x: 2100, y: 1620 },
+      { x: 2100, y: 1890 },
+      { x: 2100, y: 2165 },
+      { x: 2100, y: 2460 },
     ],
   },
   {
     id: 2,
-    name: '南门前哨',
-    spawn: { x: 2100, y: 2880 },
+    name: '北境右列',
+    spawn: { x: 2440, y: 1320 },
     waypoints: [
-      { x: 2100, y: 2620 },
-      { x: 2100, y: 2420 },
-      { x: 2100, y: 2100 },
+      { x: 2440, y: 1580 },
+      { x: 2340, y: 1740 },
+      { x: 2100, y: 1890 },
+      { x: 2100, y: 2165 },
+      { x: 2100, y: 2460 },
     ],
   },
 ];
 
-// 4 座城防防御塔基座
+// 4 座城防防御塔基座（前两座镇守汇合隘口，后两座护卫御道与圣殿）
 export const TOWER_SLOTS: TowerSlotDef[] = [
-  { id: 'tower_nw', label: '西北哨塔', x: 1870, y: 1870 },
-  { id: 'tower_ne', label: '东北哨塔', x: 2330, y: 1870 },
-  { id: 'tower_sw', label: '西南哨塔', x: 1870, y: 2330 },
-  { id: 'tower_se', label: '东南哨塔', x: 2330, y: 2330 },
+  { id: 'tower_nw', label: '汇合西哨塔', x: 1885, y: 1890 },
+  { id: 'tower_ne', label: '汇合东哨塔', x: 2315, y: 1890 },
+  { id: 'tower_sw', label: '圣殿西卫塔', x: 1920, y: 2165 },
+  { id: 'tower_se', label: '圣殿东卫塔', x: 2280, y: 2165 },
 ];
 
 export const ZONES: Record<ZoneId, ZoneDef> = {
   sanctuary: {
     id: 'sanctuary',
     name: '中心圣殿广场',
-    subtitle: '守卫圣殿女神 · 圣泉回血 · 铁匠铺 & 运水东道',
+    subtitle: '北境三列汇合攻城 · 守卫圣殿女神 · 圣泉回血 & 运水东道',
     biome: 'sanctuary',
     rect: { x: 1220, y: 1220, w: 2480, h: 1760 }, // 涵盖广场及东部运水通道至 (3700, 2980)
     spawnPoint: { x: 2100, y: 2215 },
@@ -209,55 +215,58 @@ export const ZONE_LIST: ZoneDef[] = Object.values(ZONES);
 
 // 主城周边直达传送阵（同时 HUD 也支持一键传送）
 export const PORTALS: PortalDef[] = [
-  { id: 'p_gold', fromZone: 'sanctuary', toZone: 'gold_room', x: 1750, y: 1960, radius: 34, label: '金币练功房', color: '#facc15' },
-  { id: 'p_xp', fromZone: 'sanctuary', toZone: 'xp_room', x: 1750, y: 2100, radius: 34, label: '经验练功房', color: '#38bdf8' },
-  { id: 'p_crys', fromZone: 'sanctuary', toZone: 'crystal_room', x: 1750, y: 2240, radius: 34, label: '灵晶圣苑', color: '#4ade80' },
-  { id: 'p_fire', fromZone: 'sanctuary', toZone: 'dungeon_fire', x: 1930, y: 1690, radius: 34, label: '炎魔窟', color: '#ef4444' },
-  { id: 'p_ice', fromZone: 'sanctuary', toZone: 'dungeon_ice', x: 2270, y: 1690, radius: 34, label: '寒冰谷', color: '#38bdf8' },
-  { id: 'p_trial', fromZone: 'sanctuary', toZone: 'trial_tower', x: 2450, y: 2240, radius: 34, label: '职业试炼塔', color: '#c084fc' },
+  { id: 'p_gold', fromZone: 'sanctuary', toZone: 'gold_room', x: 1750, y: 2330, radius: 34, label: '金币练功房', color: '#facc15' },
+  { id: 'p_xp', fromZone: 'sanctuary', toZone: 'xp_room', x: 1750, y: 2480, radius: 34, label: '经验练功房', color: '#38bdf8' },
+  { id: 'p_crys', fromZone: 'sanctuary', toZone: 'crystal_room', x: 1750, y: 2630, radius: 34, label: '灵晶圣苑', color: '#4ade80' },
+  { id: 'p_fire', fromZone: 'sanctuary', toZone: 'dungeon_fire', x: 1930, y: 2740, radius: 34, label: '炎魔窟', color: '#ef4444' },
+  { id: 'p_ice', fromZone: 'sanctuary', toZone: 'dungeon_ice', x: 2270, y: 2740, radius: 34, label: '寒冰谷', color: '#38bdf8' },
+  { id: 'p_trial', fromZone: 'sanctuary', toZone: 'trial_tower', x: 2450, y: 2610, radius: 34, label: '职业试炼塔', color: '#c084fc' },
 ];
 
-// 中心圣殿的碰撞圆环/装饰物（确保不堵住兵线与运水东道）
+// 中心圣殿与北关汇合隘口装饰物（确保完全避开三列兵线与运水东道）
 export const WORLD_PROPS: WorldPropDef[] = [
+  // 汇合隘口火盆与雕柱
+  { id: 'braz_c1', kind: 'brazier', x: 1975, y: 1815, radius: 18, color: '#fb923c' },
+  { id: 'braz_c2', kind: 'brazier', x: 2225, y: 1815, radius: 18, color: '#fb923c' },
+  { id: 'pil_n1', kind: 'pillar', x: 1955, y: 1985, radius: 20, color: '#eab308' },
+  { id: 'pil_n2', kind: 'pillar', x: 2245, y: 1985, radius: 20, color: '#eab308' },
   // 圣殿广场四角火盆
-  { id: 'braz_1', kind: 'brazier', x: 1960, y: 1960, radius: 18, color: '#fb923c' },
-  { id: 'braz_2', kind: 'brazier', x: 2240, y: 1960, radius: 18, color: '#fb923c' },
-  { id: 'braz_3', kind: 'brazier', x: 1960, y: 2240, radius: 18, color: '#fb923c' },
-  { id: 'braz_4', kind: 'brazier', x: 2240, y: 2240, radius: 18, color: '#fb923c' },
+  { id: 'braz_1', kind: 'brazier', x: 1970, y: 2330, radius: 18, color: '#fb923c' },
+  { id: 'braz_2', kind: 'brazier', x: 2230, y: 2330, radius: 18, color: '#fb923c' },
+  { id: 'braz_3', kind: 'brazier', x: 1970, y: 2590, radius: 18, color: '#fb923c' },
+  { id: 'braz_4', kind: 'brazier', x: 2230, y: 2590, radius: 18, color: '#fb923c' },
   // 铁匠铺砧台装饰与圣殿雕柱/晶簇/旌旗
-  { id: 'anvil_1', kind: 'anvil', x: 2295, y: 2040, radius: 22, color: '#94a3b8' },
-  { id: 'ban_s1', kind: 'banner', x: 2015, y: 2035, radius: 14, color: '#eab308' },
-  { id: 'ban_s2', kind: 'banner', x: 2185, y: 2035, radius: 14, color: '#eab308' },
-  { id: 'crys_f1', kind: 'crystal', x: 1995, y: 2325, radius: 18, color: '#38bdf8' },
-  { id: 'crys_f2', kind: 'crystal', x: 2205, y: 2325, radius: 18, color: '#38bdf8' },
-  { id: 'pil_n1', kind: 'pillar', x: 1995, y: 1745, radius: 20, color: '#eab308' },
-  { id: 'pil_n2', kind: 'pillar', x: 2205, y: 1745, radius: 20, color: '#eab308' },
-  { id: 'pil_w1', kind: 'pillar', x: 1835, y: 2010, radius: 20, color: '#eab308' },
-  { id: 'pil_w2', kind: 'pillar', x: 1835, y: 2190, radius: 20, color: '#eab308' },
-  { id: 'pil_s1', kind: 'pillar', x: 1995, y: 2455, radius: 20, color: '#eab308' },
-  { id: 'pil_s2', kind: 'pillar', x: 2205, y: 2455, radius: 20, color: '#eab308' },
-  // 圣殿外围古树
-  { id: 'tree_1', kind: 'tree', x: 1510, y: 1530, radius: 28 },
-  { id: 'tree_2', kind: 'tree', x: 1510, y: 1730, radius: 28 },
-  { id: 'tree_3', kind: 'tree', x: 1510, y: 2460, radius: 28 },
+  { id: 'anvil_1', kind: 'anvil', x: 1905, y: 2445, radius: 22, color: '#94a3b8' },
+  { id: 'ban_s1', kind: 'banner', x: 2015, y: 2385, radius: 14, color: '#eab308' },
+  { id: 'ban_s2', kind: 'banner', x: 2185, y: 2385, radius: 14, color: '#eab308' },
+  { id: 'crys_f1', kind: 'crystal', x: 2245, y: 2515, radius: 18, color: '#38bdf8' },
+  { id: 'crys_f2', kind: 'crystal', x: 2415, y: 2515, radius: 18, color: '#38bdf8' },
+  { id: 'pil_w1', kind: 'pillar', x: 1845, y: 2365, radius: 20, color: '#eab308' },
+  { id: 'pil_w2', kind: 'pillar', x: 1845, y: 2565, radius: 20, color: '#eab308' },
+  { id: 'pil_s1', kind: 'pillar', x: 2020, y: 2665, radius: 20, color: '#eab308' },
+  { id: 'pil_s2', kind: 'pillar', x: 2180, y: 2665, radius: 20, color: '#eab308' },
+  // 圣殿外围与北关古树（避开北境三列通道）
+  { id: 'tree_1', kind: 'tree', x: 1520, y: 1460, radius: 28 },
+  { id: 'tree_2', kind: 'tree', x: 1520, y: 1700, radius: 28 },
+  { id: 'tree_3', kind: 'tree', x: 1510, y: 2420, radius: 28 },
   { id: 'tree_4', kind: 'tree', x: 1510, y: 2660, radius: 28 },
-  { id: 'tree_5', kind: 'tree', x: 2680, y: 1530, radius: 28 },
-  { id: 'tree_6', kind: 'tree', x: 2680, y: 1730, radius: 28 },
-  { id: 'tree_7', kind: 'tree', x: 2680, y: 2460, radius: 28 },
-  { id: 'tree_8', kind: 'tree', x: 2680, y: 2660, radius: 28 },
-  { id: 'tree_c1', kind: 'tree', x: 1640, y: 1440, radius: 28 },
-  { id: 'tree_c2', kind: 'tree', x: 2560, y: 1440, radius: 28 },
-  { id: 'tree_c3', kind: 'tree', x: 1640, y: 2760, radius: 28 },
-  { id: 'tree_c4', kind: 'tree', x: 2560, y: 2760, radius: 28 },
+  { id: 'tree_5', kind: 'tree', x: 2680, y: 1460, radius: 28 },
+  { id: 'tree_6', kind: 'tree', x: 2680, y: 1700, radius: 28 },
+  { id: 'tree_7', kind: 'tree', x: 2660, y: 2260, radius: 28 },
+  { id: 'tree_8', kind: 'tree', x: 2660, y: 2670, radius: 28 },
+  { id: 'tree_c1', kind: 'tree', x: 1620, y: 1960, radius: 28 },
+  { id: 'tree_c2', kind: 'tree', x: 2580, y: 1960, radius: 28 },
+  { id: 'tree_c3', kind: 'tree', x: 1640, y: 2830, radius: 28 },
+  { id: 'tree_c4', kind: 'tree', x: 2560, y: 2830, radius: 28 },
   // 运水东道两旁哨旗与古树
-  { id: 'ban_1', kind: 'banner', x: 2850, y: 2020, radius: 16, color: '#eab308' },
-  { id: 'ban_2', kind: 'banner', x: 3180, y: 2020, radius: 16, color: '#eab308' },
-  { id: 'ban_3', kind: 'banner', x: 2850, y: 2280, radius: 16, color: '#eab308' },
-  { id: 'ban_4', kind: 'banner', x: 3180, y: 2280, radius: 16, color: '#eab308' },
-  { id: 'tree_e1', kind: 'tree', x: 2980, y: 1910, radius: 28 },
-  { id: 'tree_e2', kind: 'tree', x: 3340, y: 1910, radius: 28 },
-  { id: 'tree_e3', kind: 'tree', x: 2980, y: 2390, radius: 28 },
-  { id: 'tree_e4', kind: 'tree', x: 3340, y: 2390, radius: 28 },
+  { id: 'ban_1', kind: 'banner', x: 2850, y: 2350, radius: 16, color: '#eab308' },
+  { id: 'ban_2', kind: 'banner', x: 3180, y: 2350, radius: 16, color: '#eab308' },
+  { id: 'ban_3', kind: 'banner', x: 2850, y: 2570, radius: 16, color: '#eab308' },
+  { id: 'ban_4', kind: 'banner', x: 3180, y: 2570, radius: 16, color: '#eab308' },
+  { id: 'tree_e1', kind: 'tree', x: 2980, y: 2250, radius: 28 },
+  { id: 'tree_e2', kind: 'tree', x: 3340, y: 2250, radius: 28 },
+  { id: 'tree_e3', kind: 'tree', x: 2980, y: 2670, radius: 28 },
+  { id: 'tree_e4', kind: 'tree', x: 3340, y: 2670, radius: 28 },
   // 四大副本装饰柱
   { id: 'pil_f1', kind: 'pillar', x: 460, y: 310, radius: 22, color: '#ef4444' },
   { id: 'pil_f2', kind: 'pillar', x: 460, y: 780, radius: 22, color: '#ef4444' },

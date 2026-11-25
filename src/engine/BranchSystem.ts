@@ -442,8 +442,8 @@ export function updateBranches(world: GameWorldState, dt: number): void {
     if (world.quests.randomEventCooldown <= 0) {
       world.quests.randomEventCooldown = 72;
       const isGoblin = Math.random() < 0.65;
-      const sx = 1750 + Math.random() * 700;
-      const sy = 1750 + Math.random() * 700;
+      const sx = 1780 + Math.random() * 640;
+      const sy = 1860 + Math.random() * 640;
       if (isGoblin) {
         spawnEnemy(world, 'treasure_goblin', 'sanctuary', sx, sy, 1 + world.wave * 0.25, 1);
         world.bannerText = '💰 奇遇事件：盗宝地精潜入圣殿广场，快追杀夺取金币与宝石！';

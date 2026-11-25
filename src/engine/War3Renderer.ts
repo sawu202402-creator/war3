@@ -1,6 +1,7 @@
 import { getHeroClassDef } from '../data/heroes';
 import {
   ATHENA_POS,
+  CONVERGENCE_POS,
   FOUNTAIN_POS,
   PORTALS,
   WATER_ALTAR_POS,
@@ -603,6 +604,42 @@ export class War3Renderer {
     }
   }
 
+  private drawRoadSegment(
+    ctx: CanvasRenderingContext2D,
+    roadV: HTMLImageElement | null,
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    width: number,
+    minX: number,
+    maxX: number,
+    minY: number,
+    maxY: number
+  ): void {
+    const pad = width * 0.65;
+    if (Math.max(x1, x2) + pad < minX || Math.min(x1, x2) - pad > maxX || Math.max(y1, y2) + pad < minY || Math.min(y1, y2) - pad > maxY) {
+      return;
+    }
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len = Math.hypot(dx, dy);
+    if (len < 2) return;
+    ctx.save();
+    ctx.translate(x1, y1);
+    ctx.rotate(Math.atan2(dy, dx) - Math.PI / 2);
+    if (roadV) {
+      for (let off = 0; off < len; off += 256) {
+        const chunk = Math.min(256, len - off);
+        ctx.drawImage(roadV, 0, 0, 160, chunk, -width * 0.5, off, width, chunk);
+      }
+    } else {
+      ctx.fillStyle = '#4a3a28';
+      ctx.fillRect(-width * 0.38, 0, width * 0.76, len);
+    }
+    ctx.restore();
+  }
+
   private renderSanctuaryTerrain(
     ctx: CanvasRenderingContext2D,
     nowSec: number,
@@ -612,45 +649,36 @@ export class War3Renderer {
     maxY: number
   ): void {
     const roadV = IconAtlas.getSprite('tile_road_v');
-    const roadH = IconAtlas.getSprite('tile_road_h');
 
-    // Organic feathered N-S road (x: 2020..2180, y: 1290..2890)
-    if (2180 >= minX && 2020 <= maxX) {
-      if (roadV) {
-        for (let y = 1290; y < 2890; y += 256) {
-          if (y + 256 < minY || y > maxY) continue;
-          const hChunk = Math.min(256, 2890 - y);
-          ctx.drawImage(roadV, 0, 0, 160, hChunk, 2020, y, 160, hChunk);
-        }
-      } else {
-        ctx.fillStyle = '#4a3a28';
-        ctx.fillRect(2040, 1290, 120, 1600);
-      }
-    }
+    // 1. North 3 Parallel Columns -> Converge at 北关汇合隘口 -> Royal Defense Avenue -> East Water Road
+    this.drawRoadSegment(ctx, roadV, 1760, 1320, 1760, 1600, 114, minX, maxX, minY, maxY);
+    this.drawRoadSegment(ctx, roadV, 2100, 1320, 2100, 1890, 120, minX, maxX, minY, maxY);
+    this.drawRoadSegment(ctx, roadV, 2440, 1320, 2440, 1600, 114, minX, maxX, minY, maxY);
+    this.drawRoadSegment(ctx, roadV, 1760, 1585, CONVERGENCE_POS.x, CONVERGENCE_POS.y, 118, minX, maxX, minY, maxY);
+    this.drawRoadSegment(ctx, roadV, 2440, 1585, CONVERGENCE_POS.x, CONVERGENCE_POS.y, 118, minX, maxX, minY, maxY);
+    this.drawRoadSegment(ctx, roadV, CONVERGENCE_POS.x, CONVERGENCE_POS.y, ATHENA_POS.x, ATHENA_POS.y, 158, minX, maxX, minY, maxY);
+    this.drawRoadSegment(ctx, roadV, FOUNTAIN_POS.x, FOUNTAIN_POS.y, WATER_ALTAR_POS.x, WATER_ALTAR_POS.y, 148, minX, maxX, minY, maxY);
 
-    // Organic feathered W-E road (x: 1310..3550, y: 2020..2180)
-    if (2180 >= minY && 2020 <= maxY) {
-      if (roadH) {
-        for (let x = 1310; x < 3550; x += 256) {
-          if (x + 256 < minX || x > maxX) continue;
-          const wChunk = Math.min(256, 3550 - x);
-          ctx.drawImage(roadH, 0, 0, wChunk, 160, x, 2020, wChunk, 160);
-        }
-      } else {
-        ctx.fillStyle = '#4a3a28';
-        ctx.fillRect(1310, 2040, 2240, 120);
-      }
-    }
-
-    // Carved Circular Sanctuary Courtyard Disc (768x768 stone courtyard enveloping portals & towers)
+    // 2. Convergence Bastion Disc + South Athena Courtyard Disc (zero vector clipping)
     const plazaDisc = IconAtlas.getSprite('tile_plaza_disc');
     if (plazaDisc) {
-      this.drawCenteredSprite(ctx, plazaDisc, ATHENA_POS.x, ATHENA_POS.y, 940, 940);
+      this.drawCenteredSprite(ctx, plazaDisc, CONVERGENCE_POS.x, CONVERGENCE_POS.y, 320, 320);
+      this.drawCenteredSprite(ctx, plazaDisc, ATHENA_POS.x, ATHENA_POS.y, 880, 880);
     } else {
       const cobble = this.getPattern(ctx, 'cobble');
       ctx.fillStyle = cobble || '#333b48';
-      ctx.fillRect(ATHENA_POS.x - 470, ATHENA_POS.y - 470, 940, 940);
+      ctx.fillRect(CONVERGENCE_POS.x - 160, CONVERGENCE_POS.y - 160, 320, 320);
+      ctx.fillRect(ATHENA_POS.x - 440, ATHENA_POS.y - 440, 880, 880);
     }
+    this.drawWorldLabel(
+      ctx,
+      CONVERGENCE_POS.x,
+      CONVERGENCE_POS.y - 144,
+      '北关汇合隘口',
+      '#fde68a',
+      'rgba(200, 162, 74, 0.72)',
+      11
+    );
 
     const gateImg = IconAtlas.getSprite('struct_spawn_gate');
     const riftSpr = IconAtlas.getSprite('fx_boss_aura');
@@ -988,7 +1016,7 @@ export class War3Renderer {
     }
 
     // 2. Dash / Ghost Afterimages
-    const drawSz = 90 * scale;
+    const drawSz = 88 * scale;
     for (const ghost of h.afterimages) {
       const gKey = `hero_anim_${h.classId}_${ghost.pose}`;
       const gSpr = IconAtlas.getSprite(gKey) || IconAtlas.getSprite(`hero_td_${h.classId}`);
@@ -999,24 +1027,25 @@ export class War3Renderer {
       });
     }
 
-    // 3. Living Multi-Pose Kinematics
+    // 3. Agile Stylized Multi-Pose Kinematics
     const pose = this.resolveHeroPose(h);
     const spriteKey = `hero_anim_${h.classId}_${pose}`;
     const rawSpr = IconAtlas.getSprite(spriteKey) || IconAtlas.getSprite(`hero_td_${h.classId}`);
     const spr = h.hitFlash > 0 ? IconAtlas.getWhiteFlash(spriteKey) || IconAtlas.getWhiteFlash(`hero_td_${h.classId}`) || rawSpr : rawSpr;
 
-    const flipX = Math.abs(h.flipVisual) < 0.18 ? (h.flipVisual >= 0 ? 0.18 : -0.18) : h.flipVisual;
-    const facingSign = flipX >= 0 ? 1 : -1;
+    const facingSign = h.flipVisual >= 0 ? 1 : -1;
+    const turnScale = 0.84 + 0.16 * Math.min(1, Math.abs(h.flipVisual));
+    const flipX = facingSign * turnScale;
 
-    // Idle breathing vs running hop
+    // Subtle idle breathing vs crisp agile run stride (non-rubbery)
     const idleWeight = 1 - h.moveSpeedNorm;
-    const breath = Math.sin(h.animPhase) * 0.032 * idleWeight;
-    const skewIdle = Math.sin(h.animPhase * 0.5) * 0.02 * idleWeight;
+    const breath = Math.sin(h.animPhase) * 0.022 * idleWeight;
+    const skewIdle = Math.sin(h.animPhase * 0.5) * 0.012 * idleWeight;
 
     const sinRun = Math.sin(h.animPhase);
-    const strideHop = Math.abs(sinRun) * 7.5 * h.moveSpeedNorm;
-    const runScaleY = 1 + (Math.abs(sinRun) - 0.5) * 0.12 * h.moveSpeedNorm;
-    const runTilt = facingSign * (0.085 * h.moveSpeedNorm + sinRun * 0.045 * h.moveSpeedNorm);
+    const strideHop = Math.abs(sinRun) * 2.8 * h.moveSpeedNorm;
+    const runScaleY = 1 + (Math.abs(sinRun) - 0.5) * 0.04 * h.moveSpeedNorm;
+    const runTilt = facingSign * (0.055 * h.moveSpeedNorm + sinRun * 0.025 * h.moveSpeedNorm);
 
     // 3-phase attack / cast curve
     let atkLunge = 0;
@@ -1207,13 +1236,35 @@ export class War3Renderer {
       ctx.fillRect(rx + rw - 1, ry, 1, rh);
     }
 
-    // Sanctuary cross-roads & raster plaza disc
-    ctx.fillStyle = 'rgba(200, 162, 74, 0.2)';
-    ctx.fillRect(2040 * sx, 1290 * sy, 120 * sx, 1600 * sy);
-    ctx.fillRect(1310 * sx, 2040 * sy, 2240 * sx, 120 * sy);
+    // 1-approach 3-column converging lane layout + chokepoint + courtyard disc + east water road
+    const drawMapRoad = (x1: number, y1: number, x2: number, y2: number, wWorld: number) => {
+      const mx1 = x1 * sx;
+      const my1 = y1 * sy;
+      const mx2 = x2 * sx;
+      const my2 = y2 * sy;
+      const dx = mx2 - mx1;
+      const dy = my2 - my1;
+      const len = Math.hypot(dx, dy);
+      if (len < 1) return;
+      ctx.save();
+      ctx.translate(mx1, my1);
+      ctx.rotate(Math.atan2(dy, dx));
+      ctx.fillStyle = 'rgba(200, 162, 74, 0.34)';
+      ctx.fillRect(0, -wWorld * sx * 0.5, len, wWorld * sx);
+      ctx.restore();
+    };
+    drawMapRoad(1760, 1320, 1760, 1590, 95);
+    drawMapRoad(2100, 1320, 2100, 1890, 105);
+    drawMapRoad(2440, 1320, 2440, 1590, 95);
+    drawMapRoad(1760, 1585, CONVERGENCE_POS.x, CONVERGENCE_POS.y, 98);
+    drawMapRoad(2440, 1585, CONVERGENCE_POS.x, CONVERGENCE_POS.y, 98);
+    drawMapRoad(CONVERGENCE_POS.x, CONVERGENCE_POS.y, ATHENA_POS.x, ATHENA_POS.y, 145);
+    drawMapRoad(FOUNTAIN_POS.x, FOUNTAIN_POS.y, WATER_ALTAR_POS.x, WATER_ALTAR_POS.y, 120);
+
     const plazaSpr = IconAtlas.getSprite('tile_plaza_disc');
     if (plazaSpr) {
-      this.drawCenteredSprite(ctx, plazaSpr, ATHENA_POS.x * sx, ATHENA_POS.y * sy, 940 * sx, 940 * sy, { alpha: 0.72 });
+      this.drawCenteredSprite(ctx, plazaSpr, CONVERGENCE_POS.x * sx, CONVERGENCE_POS.y * sy, 320 * sx, 320 * sy, { alpha: 0.72 });
+      this.drawCenteredSprite(ctx, plazaSpr, ATHENA_POS.x * sx, ATHENA_POS.y * sy, 880 * sx, 880 * sy, { alpha: 0.72 });
     }
 
     // Towers

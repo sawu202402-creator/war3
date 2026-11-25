@@ -575,17 +575,17 @@ export const ENEMY_ARCHETYPES: Record<EnemyKind, EnemyArchetype> = {
 export const WAVES: WaveDef[] = [
   {
     wave: 1,
-    title: '哥布林先锋侦察',
-    lanes: 1,
-    groups: [{ kind: 'goblin', count: 14 }],
+    title: '哥布林三列先锋侦察',
+    lanes: 3,
+    groups: [{ kind: 'goblin', count: 15 }],
     hpMult: 0.85,
     dmgMult: 0.85,
     prepSeconds: 18,
   },
   {
     wave: 2,
-    title: '座狼骑兵突袭',
-    lanes: 1,
+    title: '座狼骑兵三列突袭',
+    lanes: 3,
     groups: [
       { kind: 'goblin', count: 12 },
       { kind: 'wolf_rider', count: 6 },
@@ -596,8 +596,8 @@ export const WAVES: WaveDef[] = [
   },
   {
     wave: 3,
-    title: '白骨箭雨试探',
-    lanes: 2,
+    title: '白骨箭雨三列合围',
+    lanes: 3,
     groups: [
       { kind: 'goblin', count: 10 },
       { kind: 'wolf_rider', count: 6 },
@@ -609,8 +609,8 @@ export const WAVES: WaveDef[] = [
   },
   {
     wave: 4,
-    title: '狂狼与白骨合流',
-    lanes: 2,
+    title: '狂狼与白骨汇流',
+    lanes: 3,
     groups: [
       { kind: 'wolf_rider', count: 10 },
       { kind: 'skeleton_archer', count: 9 },
@@ -623,7 +623,7 @@ export const WAVES: WaveDef[] = [
   {
     wave: 5,
     title: '【Boss 波】骸骨统领降临',
-    lanes: 2,
+    lanes: 3,
     groups: [
       { kind: 'skeleton_archer', count: 10 },
       { kind: 'skeleton_mage', count: 6 },
@@ -636,7 +636,7 @@ export const WAVES: WaveDef[] = [
   {
     wave: 6,
     title: '狂暴兽人铁蹄',
-    lanes: 2,
+    lanes: 3,
     groups: [
       { kind: 'orc_berserker', count: 10 },
       { kind: 'skeleton_archer', count: 8 },
@@ -648,7 +648,7 @@ export const WAVES: WaveDef[] = [
   {
     wave: 7,
     title: '自爆魔像爆破潮',
-    lanes: 2,
+    lanes: 3,
     groups: [
       { kind: 'orc_berserker', count: 8 },
       { kind: 'bomb_golem', count: 8 },
@@ -699,7 +699,7 @@ export const WAVES: WaveDef[] = [
   },
   {
     wave: 11,
-    title: '三路攻城机械压境',
+    title: '三列攻城机械压境',
     lanes: 3,
     groups: [
       { kind: 'orc_berserker', count: 12 },

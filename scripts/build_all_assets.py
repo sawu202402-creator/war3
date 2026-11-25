@@ -203,7 +203,14 @@ def main() -> None:
         out("item_ex_ranger.png"), out("item_ex_priest.png"),
     ], cols=2, rows=2, size=112)
 
-    # 9. Q-Version (Chibi 2.1-head) Hero Map Sprites & Action Frames + 5 Splash Key Arts
+    # 9. Native Stylized Q-Version (Chibi 2.3-head) Hero Map Sprites & Action Frames + 5 Splash Key Arts
+    preferred_q_sheets = {
+        "paladin": "hero_anim_paladin_q_raw_sheet_1795589127307.jpg",
+        "blademaster": "hero_anim_blademaster_q_raw_final_1795589282997.jpg",
+        "archmage": "hero_anim_archmage_q_raw_sheet_v3_1795589290719.jpg",
+        "ranger": "hero_anim_ranger_q_raw_2_1795589270615.jpg",
+        "priest": "hero_anim_priest_q_raw_2_1795589280492.jpg",
+    }
     q_specs = {
         "paladin":     (0.55, 0.25, 0.34, 0.65, 0.56, 0.29),
         "blademaster": (0.55, 0.37, 0.45, 0.72, 0.60, 0.24),
@@ -212,20 +219,25 @@ def main() -> None:
         "priest":      (0.53, 0.27, 0.35, 0.68, 0.48, 0.25),
     }
     for h in heroes:
+        pref_path = RAW_DIR / preferred_q_sheets.get(h, "")
         q_raw_matches = sorted(RAW_DIR.glob(f"hero_anim_{h}_q_raw_*.jpg")) + sorted(RAW_DIR.glob(f"hero_anim_{h}_q_raw_*.png"))
-        if q_raw_matches:
+        chosen_q = str(pref_path) if pref_path.exists() else (str(q_raw_matches[-1]) if q_raw_matches else "")
+        if chosen_q:
+            idle_path = out(f"hero_anim_{h}_idle.png")
             process_hero_anim_sheet(
-                str(q_raw_matches[-1]),
+                chosen_q,
                 [
-                    out(f"hero_anim_{h}_idle.png"),
+                    idle_path,
                     out(f"hero_anim_{h}_walk1.png"),
                     out(f"hero_anim_{h}_walk2.png"),
                     out(f"hero_anim_{h}_attack.png"),
                 ],
                 size=192,
-                clear_interior_white=(h == "ranger"),
+                clear_interior_white=False,
+                aggressive_magenta=True,
             )
-            process_cutout(latest(f"hero_td_{h}_raw"), out(f"hero_td_{h}.png"), size=176, clear_interior_white=(h == "ranger"))
+            td_im = Image.open(idle_path).convert("RGBA").resize((176, 176), Image.Resampling.LANCZOS)
+            td_im.save(out(f"hero_td_{h}.png"), format="PNG", optimize=True)
         else:
             fx, fy, he, te, hb, hr = q_specs[h]
             process_q_chibi_hero_set(

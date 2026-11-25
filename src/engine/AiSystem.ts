@@ -1,7 +1,7 @@
 import { SoundFX } from '../audio/SoundFX';
 import { DIFFICULTIES, getHeroClassDef } from '../data/heroes';
 import { getWaveDef } from '../data/waves';
-import { ATHENA_POS, HERO_FORMATION_OFFSETS, HERO_SPAWN_POS, WAVE_LANES, ZONES, clampToRect } from '../data/worldMap';
+import { ATHENA_POS, CONVERGENCE_POS, HERO_FORMATION_OFFSETS, HERO_SPAWN_POS, WAVE_LANES, ZONES, clampToRect } from '../data/worldMap';
 import { SaveManager } from '../meta/SaveManager';
 import { EnemyKind } from '../types';
 import { handleEnemyDeathDrops, spawnEnemy, teleportHeroToZone } from './BranchSystem';
@@ -31,9 +31,9 @@ export function startWave(world: GameWorldState, waveNum: number): void {
     }
   }
   if (waveDef.boss) {
-    queue.push({ kind: waveDef.boss, laneId: 0 });
+    queue.push({ kind: waveDef.boss, laneId: 1 });
     if (waveNum >= 20 && diff.doubleBossOn20) {
-      queue.push({ kind: 'boss_frost_wyrm', laneId: 1 });
+      queue.push({ kind: 'boss_frost_wyrm', laneId: 0 });
     }
     SoundFX.playBossHorn();
     SoundFX.setBgmMode('boss');
@@ -80,12 +80,12 @@ export function updateWaveDirector(
       world.waveSpawnCooldown -= dt;
       if (world.waveSpawnCooldown <= 0) {
         const waveDef = getWaveDef(world.wave);
-        const batch = Math.min(2, world.waveSpawnQueue.length);
+        const batch = Math.min(3, world.waveSpawnQueue.length);
         for (let i = 0; i < batch; i++) {
           const item = world.waveSpawnQueue.shift()!;
           const lane = WAVE_LANES[item.laneId % WAVE_LANES.length];
-          const sx = lane.spawn.x + (Math.random() - 0.5) * 46;
-          const sy = lane.spawn.y + (Math.random() - 0.5) * 46;
+          const sx = lane.spawn.x + (Math.random() - 0.5) * 26;
+          const sy = lane.spawn.y + (Math.random() - 0.5) * 18;
           spawnEnemy(
             world,
             item.kind,
@@ -98,7 +98,7 @@ export function updateWaveDirector(
             lane.id
           );
         }
-        world.waveSpawnCooldown = 0.62;
+        world.waveSpawnCooldown = 0.85;
       }
     } else {
       const waveLeft = world.enemies.some(
@@ -722,11 +722,12 @@ export function updateBotHeroes(world: GameWorldState, dt: number): void {
     }
 
     // Combat AI
-    const searchCenterX = bot.aiMode === 'guard_base' ? ATHENA_POS.x : bot.x;
-    const searchCenterY = bot.aiMode === 'guard_base' ? ATHENA_POS.y : bot.y;
+    const searchCenterX = bot.aiMode === 'guard_base' ? CONVERGENCE_POS.x : bot.x;
+    const searchCenterY = bot.aiMode === 'guard_base' ? CONVERGENCE_POS.y : bot.y;
     const target =
       findNearestEnemyInRange(world, bot.zoneId, bot.x, bot.y, 460) ||
-      findNearestEnemyInRange(world, bot.zoneId, searchCenterX, searchCenterY, 900);
+      findNearestEnemyInRange(world, bot.zoneId, searchCenterX, searchCenterY, 980) ||
+      (bot.aiMode === 'guard_base' ? findNearestEnemyInRange(world, bot.zoneId, ATHENA_POS.x, ATHENA_POS.y, 680) : null);
 
     if (target) {
       const dx = target.x - bot.x;
