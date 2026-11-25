@@ -25,6 +25,7 @@ class SoundFXManager {
   private lastGoldAt = 0;
   private lastHitAt = 0;
   private lastWarnAt = 0;
+  private lastComboAt = 0;
 
   constructor() {
     try {
@@ -341,6 +342,16 @@ class SoundFXManager {
   public playDefeat(): void {
     [349.23, 311.13, 277.18, 220].forEach((f, idx) => {
       setTimeout(() => this.oneShotTone(f, f * 0.92, 'sawtooth', 0.32, 0.1), idx * 140);
+    });
+  }
+
+  public playKillStreak(tier: number): void {
+    const now = performance.now();
+    if (now - this.lastComboAt < 350) return;
+    this.lastComboAt = now;
+    const base = tier >= 3 ? 659.25 : tier === 2 ? 523.25 : 440;
+    [base, base * 1.25, base * 1.5].forEach((f, idx) => {
+      setTimeout(() => this.oneShotTone(f, f * 1.03, 'triangle', 0.16, 0.085), idx * 42);
     });
   }
 }

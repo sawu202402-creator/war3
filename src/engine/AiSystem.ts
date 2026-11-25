@@ -80,12 +80,13 @@ export function updateWaveDirector(
       world.waveSpawnCooldown -= dt;
       if (world.waveSpawnCooldown <= 0) {
         const waveDef = getWaveDef(world.wave);
-        const batch = Math.min(3, world.waveSpawnQueue.length);
+        const batch = Math.min(6, world.waveSpawnQueue.length);
         for (let i = 0; i < batch; i++) {
           const item = world.waveSpawnQueue.shift()!;
           const lane = WAVE_LANES[item.laneId % WAVE_LANES.length];
-          const sx = lane.spawn.x + (Math.random() - 0.5) * 26;
-          const sy = lane.spawn.y + (Math.random() - 0.5) * 18;
+          const flank = i >= 3 ? -12 : 12;
+          const sx = lane.spawn.x + flank + (Math.random() - 0.5) * 20;
+          const sy = lane.spawn.y + (Math.random() - 0.5) * 26;
           spawnEnemy(
             world,
             item.kind,
@@ -98,7 +99,7 @@ export function updateWaveDirector(
             lane.id
           );
         }
-        world.waveSpawnCooldown = 0.85;
+        world.waveSpawnCooldown = world.wave >= 8 ? 0.62 : 0.72;
       }
     } else {
       const waveLeft = world.enemies.some(
@@ -333,6 +334,33 @@ export function updateEnemies(world: GameWorldState, dt: number): void {
       const cl = clampToRect(e.x, e.y, e.radius + 4, ZONES[e.zoneId].rect);
       e.x = cl.x;
       e.y = cl.y;
+    }
+  }
+
+  // Pairwise soft separation so 3-column swarms fan out cleanly at convergence & combat
+  const enemyCount = world.enemies.length;
+  for (let i = 0; i < enemyCount; i++) {
+    const a = world.enemies[i];
+    if (a.hp <= 0) continue;
+    for (let j = i + 1; j < enemyCount; j++) {
+      const b = world.enemies[j];
+      if (b.hp <= 0 || b.zoneId !== a.zoneId) continue;
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const minDist = (a.radius + b.radius) * 0.78;
+      if (Math.abs(dx) >= minDist || Math.abs(dy) >= minDist) continue;
+      const d2 = dx * dx + dy * dy;
+      if (d2 >= minDist * minDist) continue;
+      const d = Math.sqrt(d2) || 0.01;
+      const push = (minDist - d) * 0.36;
+      const nx = (dx / d) * push;
+      const ny = (dy / d) * push;
+      const clA = clampToRect(a.x - nx, a.y - ny, a.radius + 4, ZONES[a.zoneId].rect);
+      a.x = clA.x;
+      a.y = clA.y;
+      const clB = clampToRect(b.x + nx, b.y + ny, b.radius + 4, ZONES[b.zoneId].rect);
+      b.x = clB.x;
+      b.y = clB.y;
     }
   }
 }

@@ -24,6 +24,8 @@ export function spawnEnemy(
   const arch = ENEMY_ARCHETYPES[kind];
   const diff = DIFFICULTIES[world.difficulty];
   const isWaveMob = zoneId === 'sanctuary';
+  const isStandardWaveCreep =
+    isWaveMob && !arch.isBoss && !arch.isMiniBoss && kind !== 'treasure_goblin' && kind !== 'wandering_elite';
   const coopHpScale = 1 + (world.playerCount - 1) * 0.42;
   const coopDmgScale = 1 + (world.playerCount - 1) * 0.1;
 
@@ -33,10 +35,16 @@ export function spawnEnemy(
       tierMult *
       diff.hpMult *
       (isWaveMob ? coopHpScale : 1 + (world.playerCount - 1) * 0.22) *
+      (isStandardWaveCreep ? 0.68 : 1) *
       (splitGen > 0 ? 0.42 : 1)
   );
   const finalDmg = Math.round(
-    arch.baseDmg * dmgMult * Math.sqrt(tierMult) * diff.dmgMult * coopDmgScale
+    arch.baseDmg *
+      dmgMult *
+      Math.sqrt(tierMult) *
+      diff.dmgMult *
+      coopDmgScale *
+      (isStandardWaveCreep ? 0.72 : 1)
   );
 
   const e: EnemyEntity = {
@@ -66,9 +74,21 @@ export function spawnEnemy(
     attackRange: arch.attackRange,
     attackCd: arch.attackCd,
     attackTimer: Math.random() * 0.4,
-    goldReward: Math.round(arch.goldReward * tierMult * diff.rewardMult * (splitGen > 0 ? 0.35 : 1)),
+    goldReward: Math.max(
+      2,
+      Math.round(
+        arch.goldReward *
+          tierMult *
+          diff.rewardMult *
+          (isStandardWaveCreep ? 0.58 : 1) *
+          (splitGen > 0 ? 0.35 : 1)
+      )
+    ),
     crystalReward: arch.crystalReward ? Math.round(arch.crystalReward * (tierMult >= 2 ? 1.5 : 1)) : 0,
-    xpReward: Math.round(arch.xpReward * tierMult * (splitGen > 0 ? 0.35 : 1)),
+    xpReward: Math.max(
+      4,
+      Math.round(arch.xpReward * tierMult * (isStandardWaveCreep ? 0.58 : 1) * (splitGen > 0 ? 0.35 : 1))
+    ),
     color: arch.color,
     accentColor: arch.accentColor,
     laneId,
@@ -160,9 +180,32 @@ export function teleportHeroToZone(
 }
 
 export function handleEnemyDeathDrops(world: GameWorldState, enemy: EnemyEntity, killer?: HeroEntity): void {
-  // Credit kills & exclusive growth
+  // Credit kills, mana siphon, Musou combo & exclusive growth
   if (killer) {
     killer.kills += 1;
+    killer.mp = Math.min(killer.stats.maxMp, killer.mp + (enemy.isBoss ? 14 : 3));
+    killer.comboCount += 1;
+    killer.comboTimer = 5.2;
+    if (killer.comboCount > killer.comboPeak) killer.comboPeak = killer.comboCount;
+    const prevTier = killer.comboTier;
+    const nextTier = killer.comboCount >= 60 ? 3 : killer.comboCount >= 30 ? 2 : killer.comboCount >= 10 ? 1 : 0;
+    if (nextTier !== prevTier) {
+      killer.comboTier = nextTier;
+      recalcHeroStats(killer);
+    }
+    const c = killer.comboCount;
+    if (c === 10 || c === 25 || c === 50 || c === 80 || c === 120 || (c > 120 && c % 50 === 0)) {
+      addFloatingText(
+        world,
+        killer.x,
+        killer.y - 54,
+        `${c} 连斩!`,
+        nextTier >= 3 ? '#f43f5e' : '#facc15',
+        nextTier >= 2 ? 18 : 15
+      );
+      if (killer.isLocal) SoundFX.playKillStreak(nextTier);
+    }
+
     if (enemy.isBoss) killer.bossKills += 1;
     if (killer.exclusiveUnlocked && killer.exclusiveLevel < 5) {
       killer.exclusiveKills += enemy.isBoss ? 15 : 1;
@@ -177,18 +220,54 @@ export function handleEnemyDeathDrops(world: GameWorldState, enemy: EnemyEntity,
     }
   }
 
-  // Distribute gold, crystal & XP across heroes in same zone (or all heroes for Bosses!)
+  // Death burst VFX & boss camera shake
+  world.vfx.push({
+    kind: enemy.isBoss ? 'explosion' : 'hit_spark',
+    x: enemy.x,
+    y: enemy.y,
+    radius: enemy.isBoss ? 92 : 28,
+    color: enemy.isBoss ? '#f97316' : enemy.accentColor,
+    life: enemy.isBoss ? 0.45 : 0.22,
+    maxLife: enemy.isBoss ? 0.45 : 0.22,
+  });
+  if (enemy.isBoss) {
+    world.vfx.push({
+      kind: 'ring',
+      x: enemy.x,
+      y: enemy.y,
+      radius: 135,
+      color: '#facc15',
+      life: 0.42,
+      maxLife: 0.42,
+    });
+    world.cameraShake = Math.max(world.cameraShake, 8.5);
+  }
+
+  // Distribute gold, crystal & XP across heroes in same zone (65% instant + 35% magnetic drop for creeps)
   const recipients = world.heroes.filter(
     (h) => !h.dead && (enemy.isBoss || h.zoneId === enemy.zoneId)
   );
   const targets = recipients.length > 0 ? recipients : world.heroes.filter((h) => !h.dead);
   const splitGold = Math.max(1, Math.round(enemy.goldReward / Math.max(1, targets.length * 0.72)));
   const splitXp = Math.max(1, Math.round(enemy.xpReward / Math.max(1, targets.length * 0.78)));
+  const instantGold = enemy.isBoss ? splitGold : Math.max(1, Math.round(splitGold * 0.65));
+  const dropGold = enemy.isBoss ? 0 : Math.max(1, splitGold - instantGold);
 
   for (const h of targets) {
-    h.gold += splitGold;
+    h.gold += instantGold;
     if (enemy.crystalReward > 0) h.crystal += enemy.crystalReward;
     grantHeroXp(world, h, splitXp);
+  }
+  if (dropGold > 0 && world.drops.length < 180) {
+    world.drops.push({
+      id: world.nextEntityId++,
+      zoneId: enemy.zoneId,
+      x: enemy.x + (Math.random() - 0.5) * 26,
+      y: enemy.y + (Math.random() - 0.5) * 26,
+      kind: 'gold',
+      amount: dropGold,
+      life: 24,
+    });
   }
   if (killer?.isLocal) {
     SaveManager.addDailyProgress('kills', 1);
@@ -320,10 +399,11 @@ export function updateBranches(world: GameWorldState, dt: number): void {
 
     world.trainingSpawnTimer[zid] -= dt;
     if (world.trainingSpawnTimer[zid] <= 0) {
-      world.trainingSpawnTimer[zid] = zid === 'stone_mine' ? 3.5 : 1.7;
+      world.trainingSpawnTimer[zid] = zid === 'stone_mine' ? 2.4 : 0.95;
       const existing = world.enemies.filter((e) => e.zoneId === zid && e.hp > 0).length;
-      const cap = zid === 'stone_mine' ? 3 : 7;
-      if (existing < cap) {
+      const cap = zid === 'stone_mine' ? 5 : 15;
+      const spawnBatch = Math.min(cap - existing, zid === 'stone_mine' ? 1 : 2);
+      for (let s = 0; s < spawnBatch; s++) {
         const rect = ZONES[zid].rect;
         const sx = rect.x + 220 + Math.random() * (rect.w - 300);
         const sy = rect.y + 100 + Math.random() * (rect.h - 200);
@@ -406,7 +486,7 @@ export function updateBranches(world: GameWorldState, dt: number): void {
     }
   }
 
-  // 5. Drop pickups
+  // 5. Magnetic Auto-Vacuum Drop Pickups
   for (let i = world.drops.length - 1; i >= 0; i--) {
     const drop = world.drops[i];
     drop.life -= dt;
@@ -414,10 +494,26 @@ export function updateBranches(world: GameWorldState, dt: number): void {
       world.drops.splice(i, 1);
       continue;
     }
-    const picker = world.heroes.find(
-      (h) => !h.dead && h.zoneId === drop.zoneId && Math.hypot(h.x - drop.x, h.y - drop.y) <= 44
-    );
-    if (picker) {
+    let nearestHero: HeroEntity | undefined;
+    let nearestDist = Infinity;
+    for (const h of world.heroes) {
+      if (h.dead || h.zoneId !== drop.zoneId) continue;
+      if (drop.kind === 'item' && h.inventory.indexOf(null) < 0 && h.stash.indexOf(null) < 0) continue;
+      const d = Math.hypot(h.x - drop.x, h.y - drop.y);
+      if (d < nearestDist) {
+        nearestDist = d;
+        nearestHero = h;
+      }
+    }
+    if (nearestHero && nearestDist > 38 && (nearestDist <= 260 || (drop.kind !== 'item' && drop.life < 8))) {
+      const pullSpd = drop.life < 8 ? 820 : 620;
+      const step = Math.min(nearestDist - 12, pullSpd * dt);
+      drop.x += ((nearestHero.x - drop.x) / nearestDist) * step;
+      drop.y += ((nearestHero.y - drop.y) / nearestDist) * step;
+      nearestDist = Math.hypot(nearestHero.x - drop.x, nearestHero.y - drop.y);
+    }
+    if (nearestHero && nearestDist <= 46) {
+      const picker = nearestHero;
       if (drop.kind === 'gold') picker.gold += drop.amount;
       else if (drop.kind === 'crystal') picker.crystal += drop.amount;
       else if (drop.kind === 'stone') picker.stones += drop.amount;

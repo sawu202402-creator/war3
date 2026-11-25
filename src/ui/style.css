@@ -1150,6 +1150,83 @@ body {
   background: #4ade80;
 }
 
+.hud-combo-badge {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 112px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1.5px solid rgba(250, 204, 21, 0.45);
+  background: linear-gradient(135deg, rgba(28, 22, 16, 0.92), rgba(48, 26, 12, 0.9));
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+.hud-combo-badge.tier-1 {
+  border-color: rgba(250, 204, 21, 0.78);
+  box-shadow: 0 0 12px rgba(250, 204, 21, 0.32);
+}
+.hud-combo-badge.tier-2 {
+  border-color: rgba(249, 115, 22, 0.9);
+  background: linear-gradient(135deg, rgba(45, 20, 10, 0.94), rgba(78, 28, 12, 0.92));
+  box-shadow: 0 0 16px rgba(249, 115, 22, 0.45);
+}
+.hud-combo-badge.tier-3 {
+  border-color: rgba(244, 63, 94, 0.95);
+  background: linear-gradient(135deg, rgba(58, 12, 24, 0.95), rgba(96, 16, 36, 0.94));
+  box-shadow: 0 0 20px rgba(244, 63, 94, 0.58);
+}
+.combo-top-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 4px;
+  white-space: nowrap;
+}
+.combo-count-num {
+  font-size: 18px;
+  line-height: 1;
+  font-weight: 900;
+  color: #fde047;
+  text-shadow: 0 1px 4px #000;
+}
+.hud-combo-badge.tier-2 .combo-count-num {
+  color: #fb923c;
+}
+.hud-combo-badge.tier-3 .combo-count-num {
+  color: #fda4af;
+}
+.combo-label {
+  font-size: 11px;
+  font-weight: 800;
+  color: #fef3c7;
+}
+.combo-tier-tag {
+  font-size: 9.5px;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(250, 204, 21, 0.16);
+  color: #fde047;
+}
+.hud-combo-badge.tier-3 .combo-tier-tag {
+  background: rgba(244, 63, 94, 0.25);
+  color: #fecdd3;
+}
+.combo-timer-track {
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.85);
+  overflow: hidden;
+}
+.combo-timer-fill {
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, #facc15, #f97316, #f43f5e);
+  transition: width 0.1s linear;
+}
+
 /* Honor of Kings Quick-Buy Stack */
 .hud-quickbuy-stack {
   display: flex;
@@ -2150,6 +2227,31 @@ body {
   .res-chip img {
     width: 13px;
     height: 13px;
+  }
+  .hud-right-col {
+    position: relative;
+  }
+  .hud-combo-badge {
+    position: absolute;
+    top: 28px;
+    right: 108px;
+    width: max-content;
+    min-width: 86px;
+    padding: 3px 6px;
+    gap: 2px;
+  }
+  .combo-count-num {
+    font-size: 13px;
+  }
+  .combo-label {
+    font-size: 9px;
+  }
+  .combo-tier-tag {
+    font-size: 8px;
+    padding: 0 4px;
+  }
+  .combo-timer-track {
+    height: 3px;
   }
 
   .pc-bottom-bar {

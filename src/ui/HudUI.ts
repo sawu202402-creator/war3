@@ -99,6 +99,14 @@ export class HudUI {
           </div>
           <div class="hud-squad-col" id="hud-squad-col"></div>
           <button class="war3-btn war3-btn-blue" id="btn-bot-mode" style="padding:3px 8px;font-size:10.5px;display:none;">AI: 守卫圣殿</button>
+          <div class="hud-combo-badge war3-stone-panel" id="hud-combo-badge" style="display:none;">
+            <div class="combo-top-row">
+              <span class="combo-count-num" id="hud-combo-num">0</span>
+              <span class="combo-label">连斩</span>
+              <span class="combo-tier-tag" id="hud-combo-tier">势如破竹</span>
+            </div>
+            <div class="combo-timer-track"><div class="combo-timer-fill" id="hud-combo-fill"></div></div>
+          </div>
         </div>
       </div>
 
@@ -452,10 +460,18 @@ export class HudUI {
 
     q('#hud-zone-tag').textContent = ZONES[local.zoneId]?.name || '圣殿';
 
+    const aliveWaveEnemies = world.enemies.filter(
+      (e) =>
+        e.zoneId === 'sanctuary' &&
+        e.hp > 0 &&
+        e.kind !== 'treasure_goblin' &&
+        e.kind !== 'wandering_elite'
+    ).length;
+    const totalRemaining = world.waveSpawnQueue.length + aliveWaveEnemies;
     const waveTxt =
       world.waveState === 'prep'
         ? `准备第 ${world.wave + 1}${world.endlessMode ? ' (无尽)' : '/20'} 波 · ${Math.ceil(world.wavePrepTimer)}s`
-        : `${world.endlessMode ? '无尽 ' : ''}第 ${world.wave}${world.endlessMode ? '' : '/20'} 波 · 战斗中`;
+        : `${world.endlessMode ? '无尽 ' : ''}第 ${world.wave}${world.endlessMode ? '' : '/20'} 波 · 战斗中 (余 ${totalRemaining})`;
     q('#hud-wave-txt').textContent = waveTxt;
     q('#btn-early-wave').style.display = world.waveState === 'prep' && CoopManager.role !== 'client' ? 'inline-block' : 'none';
 
@@ -478,6 +494,20 @@ export class HudUI {
     q('#hud-gold').textContent = `${Math.round(local.gold)}`;
     q('#hud-crystal').textContent = `${local.crystal}木`;
     q('#hud-stones').textContent = `${local.stones}石`;
+
+    const comboEl = q('#hud-combo-badge');
+    if (local.comboCount > 0 && local.comboTimer > 0) {
+      comboEl.style.display = 'flex';
+      comboEl.classList.remove('tier-1', 'tier-2', 'tier-3');
+      if (local.comboTier > 0) comboEl.classList.add(`tier-${Math.min(3, local.comboTier)}`);
+      q('#hud-combo-num').textContent = `${local.comboCount}`;
+      const tierLabels = ['连斩蓄势', '势如破竹', '万军辟易', '无双霸业'];
+      q('#hud-combo-tier').textContent = tierLabels[Math.min(3, local.comboTier)];
+      const ratio = Math.max(0, Math.min(1, local.comboTimer / 5.2));
+      q('#hud-combo-fill').style.width = `${(ratio * 100).toFixed(0)}%`;
+    } else {
+      comboEl.style.display = 'none';
+    }
 
     const allies = world.heroes.filter((h) => !h.isLocal);
     const hasBots = world.heroes.some((h) => h.isBot);

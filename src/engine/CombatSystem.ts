@@ -150,6 +150,17 @@ export function recalcHeroStats(hero: HeroEntity): void {
     s.atkSpeed += 0.4;
     s.lifesteal += 0.12;
   }
+  if (hero.comboTier > 0) {
+    const tierIdx = Math.min(3, hero.comboTier);
+    const atkBonuses = [0, 0.14, 0.28, 0.45];
+    const critBonuses = [0, 0.05, 0.1, 0.16];
+    const spdBonuses = [1, 1.05, 1.1, 1.15];
+    const cdrBonuses = [0, 0, 0.08, 0.14];
+    s.atkSpeed += atkBonuses[tierIdx];
+    s.critChance += critBonuses[tierIdx];
+    s.moveSpeed *= spdBonuses[tierIdx];
+    s.cdr += cdrBonuses[tierIdx];
+  }
 
   s.critChance = Math.min(0.95, Math.max(0, s.critChance));
   s.cdr = Math.min(0.55, Math.max(0, s.cdr));
@@ -207,7 +218,7 @@ export function addFloatingText(
   color: string,
   size = 13
 ): void {
-  if (world.floatingTexts.length > 85) world.floatingTexts.shift();
+  if (world.floatingTexts.length > 95) world.floatingTexts.shift();
   world.floatingTexts.push({
     x: x + (Math.random() - 0.5) * 16,
     y,
@@ -422,15 +433,15 @@ export function performBasicAttack(
   if (isStealthBreak) hero.stealthTimer = 0;
 
   if (def.attackType === 'melee') {
-    const range = hero.stats.attackRange + 16;
-    const forceCrit =
-      isStealthBreak || (hero.classId === 'blademaster' && hero.attackCombo === 0);
-    const mult = isStealthBreak ? 2.15 : hero.classId === 'blademaster' && hero.attackCombo === 0 ? 1.45 : 1.0;
+    const range = hero.stats.attackRange + 24;
+    const isBmThirdCombo = hero.classId === 'blademaster' && hero.attackCombo === 0;
+    const forceCrit = isStealthBreak || isBmThirdCombo;
+    const mult = isStealthBreak ? 2.15 : isBmThirdCombo ? 1.45 : 1.0;
 
     world.vfx.push({
       kind: hero.classId === 'paladin' ? 'swing_holy' : 'swing_blade',
-      x: hero.x + dirX * 26,
-      y: hero.y + dirY * 26,
+      x: hero.x + dirX * 28,
+      y: hero.y + dirY * 28,
       angle: hero.facing,
       radius: range,
       color: forceCrit ? '#facc15' : hero.color,
@@ -439,6 +450,8 @@ export function performBasicAttack(
     });
     if (hero.isLocal) SoundFX.playSwordSlash();
 
+    const maxTargets = hero.classId === 'blademaster' ? 14 : 10;
+    const struckIds = new Set<number>();
     let hitCount = 0;
     for (const e of world.enemies) {
       if (e.zoneId !== hero.zoneId || e.hp <= 0) continue;
@@ -446,8 +459,11 @@ export function performBasicAttack(
       const dy = e.y - hero.y;
       const d = Math.hypot(dx, dy);
       if (d > range + e.radius) continue;
-      const angDiff = Math.abs(Math.atan2(Math.sin(Math.atan2(dy, dx) - hero.facing), Math.cos(Math.atan2(dy, dx) - hero.facing)));
-      if (angDiff <= Math.PI * 0.58 || d < e.radius + 26) {
+      const angDiff = Math.abs(
+        Math.atan2(Math.sin(Math.atan2(dy, dx) - hero.facing), Math.cos(Math.atan2(dy, dx) - hero.facing))
+      );
+      if (angDiff <= Math.PI * 0.68 || d < e.radius + 30) {
+        struckIds.add(e.id);
         applyDamageToEnemy(world, e, hero.stats.ad * mult, {
           attacker: hero,
           canCrit: true,
@@ -455,7 +471,32 @@ export function performBasicAttack(
           onEnemyKilled,
         });
         hitCount++;
-        if (hitCount >= (hero.classId === 'blademaster' ? 6 : 4)) break;
+        if (hitCount >= maxTargets) break;
+      }
+    }
+
+    if (isBmThirdCombo && hitCount > 0) {
+      const blastX = hero.x + dirX * Math.min(72, range * 0.62);
+      const blastY = hero.y + dirY * Math.min(72, range * 0.62);
+      world.vfx.push({
+        kind: 'explosion',
+        x: blastX,
+        y: blastY,
+        radius: 115,
+        color: '#fb923c',
+        life: 0.3,
+        maxLife: 0.3,
+      });
+      if (hero.isLocal) world.cameraShake = Math.max(world.cameraShake, 2.4);
+      for (const e of world.enemies) {
+        if (e.zoneId !== hero.zoneId || e.hp <= 0 || struckIds.has(e.id)) continue;
+        if (Math.hypot(e.x - blastX, e.y - blastY) <= 115 + e.radius) {
+          applyDamageToEnemy(world, e, hero.stats.ad * 0.68, {
+            attacker: hero,
+            canCrit: true,
+            onEnemyKilled,
+          });
+        }
       }
     }
   } else {
@@ -487,6 +528,9 @@ export function performBasicAttack(
       : hero.stats.ad;
     const isMagic = hero.classId === 'archmage' || hero.classId === 'priest';
     const spread = 0.16;
+    const projAoe = hero.classId === 'archmage' ? 72 : hero.classId === 'priest' ? 62 : 0;
+    const basePierce = hero.classId === 'ranger' ? 1 : 0;
+    const hawkeyeBonus = hero.classId === 'ranger' ? 3 : 2;
 
     for (let i = 0; i < arrowCount; i++) {
       const offset = arrowCount === 1 ? 0 : (i - (arrowCount - 1) / 2) * spread;
@@ -506,7 +550,8 @@ export function performBasicAttack(
         damage: dmgBase * splitMult,
         isMagic,
         color: hero.color,
-        pierceLeft: hero.hawkeyeTimer > 0 ? 2 : 0,
+        aoeRadius: projAoe,
+        pierceLeft: basePierce + (hero.hawkeyeTimer > 0 ? hawkeyeBonus : 0),
         hitIds: [],
         life: hero.stats.attackRange / spd + 0.12,
       });

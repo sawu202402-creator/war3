@@ -127,6 +127,12 @@ export interface HeroEntity {
   carryingWater: boolean;
   waterDeliveriesDone: number;
 
+  // Musou Kill-Streak Combo
+  comboCount: number;
+  comboTimer: number;
+  comboTier: number;
+  comboPeak: number;
+
   // Animation & Kinematics
   prevX: number;
   prevY: number;

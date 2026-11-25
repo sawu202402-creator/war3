@@ -323,6 +323,10 @@ export class GameEngine {
       stunTimer: 0,
       carryingWater: false,
       waterDeliveriesDone: 0,
+      comboCount: 0,
+      comboTimer: 0,
+      comboTier: 0,
+      comboPeak: 0,
       prevX: spawnX,
       prevY: spawnY,
       moveSpeedNorm: 0,
@@ -502,6 +506,14 @@ export class GameEngine {
         h.passiveTimer -= dt;
         if (h.passiveTimer <= 0 && h.passiveStacks > 0) {
           h.passiveStacks = 0;
+          recalcHeroStats(h);
+        }
+      }
+      if (h.comboTimer > 0) {
+        h.comboTimer -= dt;
+        if (h.comboTimer <= 0 && (h.comboCount > 0 || h.comboTier > 0)) {
+          h.comboCount = 0;
+          h.comboTier = 0;
           recalcHeroStats(h);
         }
       }
