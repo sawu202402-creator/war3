@@ -218,6 +218,7 @@ async function bootstrap() {
       if (hudTick >= 0.08) {
         hudTick = 0;
         hud.sync();
+        modals.syncLiveShop();
       }
     }
   };

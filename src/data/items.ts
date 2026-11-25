@@ -774,6 +774,22 @@ export function getUpgradesTo(itemId: string): ItemDef | undefined {
   return ITEMS.find((it) => it.upgradesFrom === itemId);
 }
 
+export function getUpgradeChain(itemId: string): ItemDef[] {
+  const chain: ItemDef[] = [];
+  const seen = new Set<string>();
+  let cur: ItemDef | undefined = ITEM_MAP.get(itemId);
+  while (cur && !seen.has(cur.id)) {
+    seen.add(cur.id);
+    chain.unshift(cur);
+    cur = cur.upgradesFrom ? ITEM_MAP.get(cur.upgradesFrom) : undefined;
+  }
+  return chain;
+}
+
+export function getItemsUsingIngredient(itemId: string): ItemDef[] {
+  return ITEMS.filter((it) => it.upgradesFrom === itemId || Boolean(it.recipe?.items.includes(itemId)));
+}
+
 export function getHeroRecommendedRecipeTargets(heroId: HeroClassId): string[] {
   switch (heroId) {
     case 'paladin':

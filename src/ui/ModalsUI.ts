@@ -1,18 +1,54 @@
 import { SoundFX } from '../audio/SoundFX';
 import { getHeroClassDef } from '../data/heroes';
-import { ITEMS, RARITY_META, getHeroRecommendedRecipeTargets, getItemDef, getUpgradesTo } from '../data/items';
+import {
+  ITEMS,
+  RARITY_META,
+  getHeroRecommendedRecipeTargets,
+  getItemDef,
+  getItemsUsingIngredient,
+  getUpgradeChain,
+  getUpgradesTo,
+} from '../data/items';
 import { ZONES } from '../data/worldMap';
-import { getDiscountedGold, planSynthesis } from '../engine/EconomySystem';
+import {
+  getDiscountedGold,
+  getSellRefund,
+  planDirectAcquire,
+  planSynthesis,
+} from '../engine/EconomySystem';
 import { GameEngine } from '../engine/GameEngine';
 import { HeroEntity } from '../engine/GameState';
 import { IconAtlas } from '../engine/IconAtlas';
-import { TowerType, ZoneId } from '../types';
+import { ItemDef, TowerType, ZoneId } from '../types';
 
-type ShopTab = 'recommended' | 'forge' | 'synth' | 'consumables' | 'books' | 'bag';
+type ShopCategory =
+  | 'recommended'
+  | 'weapon'
+  | 'magic'
+  | 'armor'
+  | 'boots'
+  | 'consumables'
+  | 'books'
+  | 'stash_gift';
+
+const SHOP_CATEGORIES: { id: ShopCategory; label: string }[] = [
+  { id: 'recommended', label: '推荐' },
+  { id: 'weapon', label: '攻击' },
+  { id: 'magic', label: '法术' },
+  { id: 'armor', label: '防御' },
+  { id: 'boots', label: '移动' },
+  { id: 'consumables', label: '药水' },
+  { id: 'books', label: '神书' },
+  { id: 'stash_gift', label: '箱·赠' },
+];
 
 export class ModalsUI {
   private activeModal: 'none' | 'shop' | 'teleport' | 'base' | 'awaken' | 'pause' | 'settlement' = 'none';
-  private shopTab: ShopTab = 'recommended';
+  private shopCat: ShopCategory = 'recommended';
+  private selectedShopItemId: string | null = null;
+  private selectedBagSlot: { inInv: boolean; idx: number } | null = null;
+  private lastShopLiveHash = '';
+  private lastShopRenderAt = 0;
   private modalEl: HTMLElement | null = null;
   private settlementVictory = false;
 
@@ -35,9 +71,17 @@ export class ModalsUI {
   }
 
   public toggleShop(): void {
-    if (this.activeModal === 'shop') this.close();
-    else {
+    if (this.activeModal === 'shop') {
+      this.close();
+    } else {
+      const hero = this.engine.getLocalHero();
       this.activeModal = 'shop';
+      this.shopCat = 'recommended';
+      this.selectedBagSlot = null;
+      this.selectedShopItemId = hero
+        ? hero.pinnedRecipeId || getHeroRecommendedRecipeTargets(hero.classId)[0] || 'wep_t1'
+        : 'wep_t1';
+      this.lastShopLiveHash = '';
       this.render();
     }
   }
@@ -80,12 +124,16 @@ export class ModalsUI {
   }
 
   public render(): void {
+    const prevListScroll = (this.modalEl?.querySelector('.hok-shop-list') as HTMLElement | null)?.scrollTop ?? 0;
+    const prevDetailScroll = (this.modalEl?.querySelector('.hok-detail-scroll') as HTMLElement | null)?.scrollTop ?? 0;
+
     this.modalEl?.remove();
     if (this.activeModal === 'none') return;
 
     const wrap = document.createElement('div');
     wrap.className = 'war3-modal-backdrop';
-    wrap.innerHTML = `<div class="war3-modal war3-stone-panel">${this.buildContent()}</div>`;
+    const isShop = this.activeModal === 'shop';
+    wrap.innerHTML = `<div class="war3-modal war3-stone-panel ${isShop ? 'hok-shop-modal' : ''}">${this.buildContent()}</div>`;
     wrap.addEventListener('click', (e) => {
       if (e.target === wrap && this.activeModal !== 'settlement' && this.activeModal !== 'awaken') {
         this.close();
@@ -93,7 +141,54 @@ export class ModalsUI {
     });
     this.root.appendChild(wrap);
     this.modalEl = wrap;
+    this.lastShopRenderAt = performance.now();
+
+    if (isShop) {
+      const newList = wrap.querySelector('.hok-shop-list') as HTMLElement | null;
+      const newDetail = wrap.querySelector('.hok-detail-scroll') as HTMLElement | null;
+      if (newList) newList.scrollTop = prevListScroll;
+      if (newDetail) newDetail.scrollTop = prevDetailScroll;
+    }
+
     this.bindModalEvents();
+  }
+
+  public syncLiveShop(): void {
+    if (this.activeModal !== 'shop' || !this.modalEl) return;
+    const world = this.engine.world;
+    const hero = this.engine.getLocalHero();
+    if (!world || !hero) return;
+
+    const goldEl = this.modalEl.querySelector('#shop-live-gold');
+    const crysEl = this.modalEl.querySelector('#shop-live-crystal');
+    const stoneEl = this.modalEl.querySelector('#shop-live-stones');
+    if (goldEl) goldEl.textContent = `${Math.round(hero.gold)}`;
+    if (crysEl) crysEl.textContent = `${hero.crystal}木`;
+    if (stoneEl) stoneEl.textContent = `${hero.stones}石`;
+
+    const groups = this.getShopGroupsForCategory(hero);
+    const visibleIds = groups.flatMap((g) => g.items.map((it) => it.id));
+    if (this.selectedShopItemId && !visibleIds.includes(this.selectedShopItemId)) {
+      visibleIds.push(this.selectedShopItemId);
+    }
+    const affordStr = visibleIds
+      .map((id) => (planDirectAcquire(world, hero, id).canDo ? '1' : '0'))
+      .join('');
+    const hash = [
+      hero.inventory.map((x) => x || '').join(','),
+      hero.stash.map((x) => x || '').join(','),
+      hero.pinnedRecipeId || '',
+      hero.ankhs,
+      this.shopCat,
+      this.selectedShopItemId || '',
+      this.selectedBagSlot ? `${this.selectedBagSlot.inInv ? 1 : 0}:${this.selectedBagSlot.idx}` : '',
+      affordStr,
+    ].join('|');
+
+    if (hash !== this.lastShopLiveHash && performance.now() - this.lastShopRenderAt >= 400) {
+      this.lastShopLiveHash = hash;
+      this.render();
+    }
   }
 
   private buildContent(): string {
@@ -105,203 +200,462 @@ export class ModalsUI {
     return this.buildSettlementModal();
   }
 
+  private getShopGroupsForCategory(hero: HeroEntity): { title: string; items: ItemDef[] }[] {
+    const pick = (ids: string[]) => ids.map((id) => getItemDef(id)).filter((x): x is ItemDef => Boolean(x));
+
+    switch (this.shopCat) {
+      case 'recommended': {
+        const recTargets = getHeroRecommendedRecipeTargets(hero.classId);
+        const coreIds =
+          hero.pinnedRecipeId && !recTargets.includes(hero.pinnedRecipeId)
+            ? [hero.pinnedRecipeId, ...recTargets]
+            : recTargets;
+        return [
+          { title: '核心推荐神装（点选右侧可预购 / 查合成树）', items: pick(coreIds) },
+          {
+            title: '常用基础件与消耗品',
+            items: pick(['wep_t1', 'arm_t1', 'acc_t1', 'boot_t1', 'pot_hp_l', 'pot_mp', 'pot_omni', 'pot_invuln', 'item_ankh']),
+          },
+        ];
+      }
+      case 'weapon':
+        return [
+          { title: '基础与攻击散件', items: pick(['wep_t1', 'comp_vamp', 'comp_claw', 'comp_thunder', 'comp_crit']) },
+          { title: '进阶锻造（支持一键补差价升阶）', items: pick(['wep_t2', 'wep_t3', 'wep_t4']) },
+          { title: '传说 / 神话神兵', items: pick(['leg_bloodreaver', 'leg_thunderfury', 'myth_frostmourne', 'myth_chaos']) },
+        ];
+      case 'magic':
+        return [
+          { title: '基础与法术散件', items: pick(['acc_t1', 'comp_frost', 'comp_flame', 'comp_mana']) },
+          { title: '进阶锻造（支持一键补差价升阶）', items: pick(['acc_t2', 'acc_t3', 'acc_t4']) },
+          { title: '传说 / 神话法器', items: pick(['leg_wintersoul', 'leg_inferno', 'myth_apocalypse']) },
+        ];
+      case 'armor':
+        return [
+          { title: '基础与防御散件', items: pick(['arm_t1', 'comp_pendant', 'comp_thorn']) },
+          { title: '进阶锻造（支持一键补差价升阶）', items: pick(['arm_t2', 'arm_t3', 'arm_t4']) },
+          { title: '传说 / 神话重甲', items: pick(['leg_aegis', 'myth_immortal']) },
+        ];
+      case 'boots':
+        return [{ title: '移动与疾风神靴线', items: pick(['boot_t1', 'boot_t2', 'boot_t3', 'epic_windboots']) }];
+      case 'consumables':
+        return [
+          {
+            title: '回复药剂 · 无敌神盾 · 强化石',
+            items: ITEMS.filter((i) => i.shopVisible && (i.category === 'consumable' || i.id === 'mat_stone')),
+          },
+        ];
+      case 'books':
+        return [{ title: '永久属性成长神书', items: ITEMS.filter((i) => i.shopVisible && i.category === 'book') }];
+      case 'stash_gift':
+        return [];
+    }
+  }
+
+  private formatCostLabel(gold: number, crystal: number, stones: number): string {
+    if (gold === 0 && crystal === 0 && stones === 0) return '免费';
+    return `${gold}G${crystal > 0 ? ` · ${crystal}木` : ''}${stones > 0 ? ` · ${stones}石` : ''}`;
+  }
+
+  private isOwnedByHero(hero: HeroEntity, itemId: string): boolean {
+    return hero.inventory.includes(itemId) || hero.stash.includes(itemId);
+  }
+
   private buildShopModal(): string {
     const world = this.engine.world!;
     const hero = this.engine.getLocalHero()!;
-    const recIds = getHeroRecommendedRecipeTargets(hero.classId);
+    const pinnedDef = hero.pinnedRecipeId ? getItemDef(hero.pinnedRecipeId) : undefined;
+    const allies = world.heroes.filter((h) => !h.isLocal);
+    const stashUsed = hero.stash.filter(Boolean).length;
 
-    let bodyHtml = '';
-    if (this.shopTab === 'recommended') {
-      const starters = ITEMS.filter((i) => i.shopVisible && ['wep_t1', 'arm_t1', 'acc_t1', 'boot_t1', 'pot_hp_l', 'pot_mp', 'item_ankh'].includes(i.id));
-      const targets = recIds.map((id) => getItemDef(id)!).filter(Boolean);
-      bodyHtml = `
-        <h4 class="modal-sec-title" style="color:#fde047;">职业推荐核心神装（支持一键合成或收藏至左侧快捷出装）</h4>
-        <div class="item-grid" style="margin-bottom:14px;">
-          ${targets.map((it) => this.renderSynthCard(it.id)).join('')}
+    let middleHtml = '';
+    if (this.shopCat === 'stash_gift') {
+      middleHtml = `
+        <div class="hok-shop-group-title">随身储物箱（6 格材料与备用装备 · 点选可在右侧操作）</div>
+        <div class="hok-stash-grid">
+          ${hero.stash
+            .map((id, idx) => {
+              const it = id ? getItemDef(id) : undefined;
+              const rm = it ? RARITY_META[it.rarity] : undefined;
+              const isSel =
+                Boolean(this.selectedBagSlot && !this.selectedBagSlot.inInv && this.selectedBagSlot.idx === idx);
+              return `
+                <button class="hok-stash-cell ${isSel ? 'is-selected' : ''}" data-bag-slot="0:${idx}" type="button" style="${rm ? `border-color:${rm.border};` : ''}">
+                  ${
+                    it
+                      ? `<img src="${IconAtlas.getDataUrl(it.iconKey)}" alt="" />
+                         <span class="hok-stash-name" style="color:${rm!.color};">${it.name}</span>`
+                      : `<span class="hok-stash-empty">空格 #${idx + 1}</span>`
+                  }
+                </button>
+              `;
+            })
+            .join('')}
         </div>
-        <h4 class="modal-sec-title" style="color:#cbd5e1;">起步装备与保命药剂</h4>
-        <div class="item-grid">
-          ${starters.map((it) => this.renderBuyCard(it.id)).join('')}
-        </div>
+        <div class="hok-shop-group-title" style="margin-top:10px;">队友互助赠送金币 / 灵晶</div>
+        ${
+          allies.length > 0
+            ? `<div class="hok-gift-panel">
+                ${allies
+                  .map(
+                    (a) => `
+                  <div class="hok-gift-row">
+                    <span class="hok-gift-ally" style="color:${a.color};">${a.callsign}</span>
+                    <button class="war3-btn" data-gift-gold="${a.id}" type="button">赠 300G</button>
+                    <button class="war3-btn war3-btn-green" data-gift-crys="${a.id}" type="button">赠 1木</button>
+                  </div>`
+                  )
+                  .join('')}
+               </div>`
+            : '<div class="hok-shop-empty-note">当前无队友（单人守城模式），随身储物箱内的材料在合成神装时会自动扣取。</div>'
+        }
       `;
-    } else if (this.shopTab === 'forge') {
-      const baseGear = ITEMS.filter((i) => i.shopVisible && (i.category === 'weapon' || i.category === 'armor' || i.category === 'accessory' || i.category === 'boots'));
-      const upgradeables = hero.inventory
-        .map((id, idx) => {
-          if (!id) return '';
-          const cur = getItemDef(id);
-          const next = getUpgradesTo(id);
-          if (!cur || !next) return '';
-          const g = getDiscountedGold(world, next.upgradeCostGold || 0);
-          return `
-            <div class="item-card" style="border-color:${RARITY_META[next.rarity].border};">
-              <div class="item-card-top">
-                <img src="${IconAtlas.getDataUrl(next.iconKey)}" alt="" />
-                <div>
-                  <div style="font-weight:800;font-size:13px;color:${RARITY_META[next.rarity].color};">${cur.name} → ${next.name}</div>
-                  <div style="font-size:11px;color:#94a3b8;">${next.desc}</div>
-                </div>
+    } else {
+      const groups = this.getShopGroupsForCategory(hero);
+      middleHtml = groups
+        .map(
+          (grp) => `
+          <div class="hok-shop-group-title">${grp.title}</div>
+          <div class="hok-item-grid">
+            ${grp.items.map((it) => this.renderHoKItemTile(it)).join('')}
+          </div>
+        `
+        )
+        .join('');
+    }
+
+    const detailHtml = this.buildShopDetailPanel(hero, allies);
+
+    return `
+      <div class="hok-shop-head">
+        <div class="modal-title-group">
+          <img class="modal-head-ico" src="${IconAtlas.getDataUrl('ui_ico_shop')}" alt="" />
+          <h2>局内商店</h2>
+          ${
+            pinnedDef
+              ? `<button class="hok-head-pin-chip" data-pin-id="${pinnedDef.id}" type="button" title="点击取消预购">
+                  <img src="${IconAtlas.getDataUrl(pinnedDef.iconKey)}" alt="" />
+                  <span>预购: ${pinnedDef.name} ×</span>
+                 </button>`
+              : ''
+          }
+        </div>
+        <div class="hok-head-right">
+          <div class="modal-res-chips">
+            <span class="modal-res-chip"><img src="${IconAtlas.getDataUrl('ui_ico_gold')}" alt="" /><span id="shop-live-gold">${Math.round(hero.gold)}</span></span>
+            <span class="modal-res-chip" style="color:#86efac;"><img src="${IconAtlas.getDataUrl('ui_ico_crystal')}" alt="" /><span id="shop-live-crystal">${hero.crystal}木</span></span>
+            <span class="modal-res-chip" style="color:#7dd3fc;"><img src="${IconAtlas.getDataUrl('ui_ico_stone')}" alt="" /><span id="shop-live-stones">${hero.stones}石</span></span>
+          </div>
+          <button class="war3-btn war3-btn-red hok-close-btn" id="btn-modal-close" type="button">关闭</button>
+        </div>
+      </div>
+
+      <div class="hok-shop-main">
+        <div class="hok-shop-cats">
+          ${SHOP_CATEGORIES.map(
+            (c) => `
+            <button class="hok-cat-btn ${this.shopCat === c.id ? 'active' : ''}" data-shop-cat="${c.id}" type="button">
+              ${c.label}
+            </button>
+          `
+          ).join('')}
+        </div>
+
+        <div class="hok-shop-list">${middleHtml}</div>
+
+        <div class="hok-shop-detail">${detailHtml}</div>
+      </div>
+
+      <div class="hok-shop-footer">
+        <span class="hok-footer-label">已出装备</span>
+        <div class="hok-footer-slots">
+          ${hero.inventory
+            .map((id, idx) => {
+              const it = id ? getItemDef(id) : undefined;
+              const rm = it ? RARITY_META[it.rarity] : undefined;
+              const next = it ? getUpgradesTo(it.id) : undefined;
+              const canUpg = next ? planDirectAcquire(world, hero, next.id).canDo : false;
+              const isSel =
+                Boolean(this.selectedBagSlot && this.selectedBagSlot.inInv && this.selectedBagSlot.idx === idx);
+              return `
+                <button class="hok-footer-slot ${isSel ? 'is-selected' : ''} ${it ? 'has-item' : ''}"
+                        data-bag-slot="1:${idx}" type="button"
+                        style="${rm ? `border-color:${rm.border};` : ''}"
+                        title="${it ? `${it.name}（点击查看 / 出售 / 升阶）` : `空装备格 #${idx + 1}`}">
+                  ${
+                    it
+                      ? `<img src="${IconAtlas.getDataUrl(it.iconKey)}" alt="" />
+                         ${canUpg ? '<span class="hok-slot-upg-tag">↑</span>' : ''}`
+                      : `<span class="hok-slot-num">${idx + 1}</span>`
+                  }
+                </button>
+              `;
+            })
+            .join('')}
+        </div>
+        <button class="war3-btn ${this.shopCat === 'stash_gift' ? 'war3-btn-blue' : ''} hok-stash-shortcut" data-shop-cat="stash_gift" type="button">
+          储物箱 (${stashUsed}/6)
+        </button>
+      </div>
+    `;
+  }
+
+  private renderHoKItemTile(it: ItemDef): string {
+    const world = this.engine.world!;
+    const hero = this.engine.getLocalHero()!;
+    const rm = RARITY_META[it.rarity];
+    const plan = planDirectAcquire(world, hero, it.id);
+    const isPinned = hero.pinnedRecipeId === it.id;
+    const isOwned = this.isOwnedByHero(hero, it.id);
+    const isSel = !this.selectedBagSlot && this.selectedShopItemId === it.id;
+    const costStr =
+      it.category === 'material' && !it.shopVisible
+        ? 'Boss掉落'
+        : `${plan.goldCost}G${plan.crystalCost > 0 ? `+${plan.crystalCost}木` : ''}${plan.stoneCost > 0 ? `+${plan.stoneCost}石` : ''}`;
+
+    return `
+      <button class="hok-item-tile ${plan.canDo ? 'can-afford' : ''} ${isSel ? 'is-selected' : ''} ${isPinned ? 'is-pinned' : ''}"
+              data-shop-item="${it.id}" type="button"
+              style="border-color:${isSel ? '#fde047' : plan.canDo ? '#22c55e' : rm.border};">
+        <div class="hok-tile-ico-wrap">
+          <img src="${IconAtlas.getDataUrl(it.iconKey)}" alt="" />
+          ${isPinned ? '<span class="hok-tile-badge pin">预购</span>' : isOwned ? '<span class="hok-tile-badge own">已有</span>' : ''}
+        </div>
+        <div class="hok-tile-meta">
+          <div class="hok-tile-name" style="color:${rm.color};">${it.name}</div>
+          <div class="hok-tile-cost ${plan.canDo ? 'affordable' : ''}">${plan.mode === 'upgrade' ? '升阶 ' : ''}${costStr}</div>
+        </div>
+      </button>
+    `;
+  }
+
+  private buildShopDetailPanel(hero: HeroEntity, allies: HeroEntity[]): string {
+    const world = this.engine.world!;
+
+    if (this.selectedBagSlot) {
+      const arr = this.selectedBagSlot.inInv ? hero.inventory : hero.stash;
+      const itemId = arr[this.selectedBagSlot.idx];
+      if (itemId) {
+        const it = getItemDef(itemId)!;
+        const rm = RARITY_META[it.rarity];
+        const next = getUpgradesTo(itemId);
+        const nextPlan = next ? planDirectAcquire(world, hero, next.id) : null;
+        const parents = getItemsUsingIngredient(itemId);
+        const refund = getSellRefund(itemId);
+        const inInv = this.selectedBagSlot.inInv;
+        const idx = this.selectedBagSlot.idx;
+
+        return `
+          <div class="hok-detail-scroll">
+            <div class="hok-detail-head">
+              <img class="hok-detail-ico" src="${IconAtlas.getDataUrl(it.iconKey)}" alt="" style="border-color:${rm.border};" />
+              <div class="hok-detail-titlebox">
+                <div class="hok-detail-name" style="color:${rm.color};">${it.name}${it.heroExclusive ? ` Lv.${hero.exclusiveLevel}` : ''}</div>
+                <div class="hok-detail-sub">${rm.label} · ${inInv ? `已出栏 #${idx + 1}` : `储物箱 #${idx + 1}`}</div>
               </div>
-              <button class="war3-btn war3-btn-blue" data-upg-inv="${idx}">升阶 (${g}G${next.upgradeCostCrystal ? ` · ${next.upgradeCostCrystal}木` : ''}${next.upgradeStones ? ` · ${next.upgradeStones}石` : ''})</button>
             </div>
+            <div class="hok-detail-desc">${it.desc}</div>
+            ${
+              next
+                ? `<div class="hok-upg-preview">
+                    <div class="hok-upg-label">可锻造升阶 → <span style="color:${RARITY_META[next.rarity].color};">${next.name}</span></div>
+                    <div class="hok-upg-desc">${next.desc}</div>
+                   </div>`
+                : ''
+            }
+            ${this.renderParentChipsHtml(parents)}
+            ${
+              allies.length > 0 && !it.heroExclusive
+                ? `<div class="hok-parents-box">
+                    <div class="hok-parents-title">转赠队友</div>
+                    <div class="hok-parent-chips">
+                      ${allies
+                        .map(
+                          (a) =>
+                            `<button class="hok-parent-chip" data-slot-gift="${inInv ? '1' : '0'}:${idx}:${a.id}" type="button">赠 ${a.callsign.slice(0, 5)}</button>`
+                        )
+                        .join('')}
+                    </div>
+                   </div>`
+                : ''
+            }
+          </div>
+          <div class="hok-detail-actions">
+            ${
+              next && nextPlan
+                ? `<button class="war3-btn war3-btn-blue" data-slot-upg="${inInv ? '1' : '0'}:${idx}" type="button" ${nextPlan.canDo ? '' : 'disabled'}>
+                    升阶 (${this.formatCostLabel(
+                      getDiscountedGold(world, next.upgradeCostGold || 0),
+                      next.upgradeCostCrystal || 0,
+                      next.upgradeStones || 0
+                    )})
+                   </button>`
+                : ''
+            }
+            <div class="hok-detail-subactions">
+              <button class="war3-btn" data-slot-swap="${inInv ? '1' : '0'}:${idx}" type="button" style="flex:1;">${inInv ? '存箱子' : '穿戴'}</button>
+              ${
+                !it.heroExclusive
+                  ? `<button class="war3-btn war3-btn-red" data-slot-sell="${inInv ? '1' : '0'}:${idx}" type="button" style="flex:1;">出售 +${refund}G</button>`
+                  : ''
+              }
+            </div>
+          </div>
+        `;
+      }
+      this.selectedBagSlot = null;
+    }
+
+    const fallbackId = this.selectedShopItemId || hero.pinnedRecipeId || getHeroRecommendedRecipeTargets(hero.classId)[0] || 'wep_t1';
+    const it = getItemDef(fallbackId) || ITEMS[0];
+    this.selectedShopItemId = it.id;
+    const rm = RARITY_META[it.rarity];
+    const plan = planDirectAcquire(world, hero, it.id);
+    const isPinned = hero.pinnedRecipeId === it.id;
+    const canPin = Boolean(it.recipe || it.upgradesFrom);
+    const parents = getItemsUsingIngredient(it.id);
+    const costLabel =
+      it.category === 'material' && !it.shopVisible
+        ? '副本 / Boss 掉落'
+        : this.formatCostLabel(plan.goldCost, plan.crystalCost, plan.stoneCost);
+
+    const actionText =
+      it.category === 'material' && !it.shopVisible
+        ? '需击败 Boss 获取'
+        : plan.canDo
+          ? `${plan.mode === 'synth' ? '一键合成' : plan.mode === 'upgrade' ? '升阶锻造' : '购买'} (${costLabel})`
+          : plan.reason || `需 ${costLabel}`;
+
+    return `
+      <div class="hok-detail-scroll">
+        <div class="hok-detail-head">
+          <img class="hok-detail-ico" src="${IconAtlas.getDataUrl(it.iconKey)}" alt="" style="border-color:${rm.border};" />
+          <div class="hok-detail-titlebox">
+            <div class="hok-detail-name" style="color:${rm.color};">${it.name}</div>
+            <div class="hok-detail-sub">${rm.label} · ${costLabel}</div>
+          </div>
+        </div>
+        <div class="hok-detail-desc">${it.desc}</div>
+        ${
+          it.activeSkill
+            ? `<div class="hok-detail-active">主动【${it.activeSkill.name}】(${it.activeSkill.cooldown}s)：${it.activeSkill.desc}</div>`
+            : ''
+        }
+        ${this.renderVisualTreeHtml(hero, it)}
+        ${this.renderParentChipsHtml(parents)}
+      </div>
+      <div class="hok-detail-actions">
+        <button class="war3-btn ${plan.canDo ? 'war3-btn-gold' : ''}" data-hok-acquire="${it.id}" type="button" ${plan.canDo ? '' : 'disabled'}>
+          ${actionText}
+        </button>
+        ${
+          canPin
+            ? `<button class="war3-btn ${isPinned ? 'war3-btn-blue' : ''}" data-pin-id="${it.id}" type="button">
+                ${isPinned ? '取消预购（已拆解推送）' : '预购（自动推送小件）'}
+               </button>`
+            : ''
+        }
+      </div>
+    `;
+  }
+
+  private renderParentChipsHtml(parents: ItemDef[]): string {
+    if (parents.length === 0) return '';
+    return `
+      <div class="hok-parents-box">
+        <div class="hok-parents-title">可合成 / 进阶 →</div>
+        <div class="hok-parent-chips">
+          ${parents
+            .map(
+              (p) => `
+              <button class="hok-parent-chip" data-select-item="${p.id}" type="button" style="border-color:${RARITY_META[p.rarity].border};">
+                <img src="${IconAtlas.getDataUrl(p.iconKey)}" alt="" />
+                <span style="color:${RARITY_META[p.rarity].color};">${p.name}</span>
+              </button>
+            `
+            )
+            .join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  private renderVisualTreeHtml(hero: HeroEntity, it: ItemDef): string {
+    const world = this.engine.world!;
+    const ownedPool = [...hero.inventory, ...hero.stash];
+    const takeOwned = (id: string): boolean => {
+      const idx = ownedPool.indexOf(id);
+      if (idx >= 0) {
+        ownedPool[idx] = null;
+        return true;
+      }
+      return false;
+    };
+
+    if (it.recipe) {
+      const rootOwned = this.isOwnedByHero(hero, it.id);
+      const childrenHtml = it.recipe.items
+        .map((reqId) => {
+          const sub = getItemDef(reqId);
+          if (!sub) return '';
+          const subRm = RARITY_META[sub.rarity];
+          const held = takeOwned(sub.id);
+          const subPlan = planDirectAcquire(world, hero, sub.id);
+          const subTag = held
+            ? '<span class="hok-node-tag ok">✓ 已有</span>'
+            : sub.category === 'material' && !sub.shopVisible
+              ? '<span class="hok-node-tag boss">Boss</span>'
+              : `<span class="hok-node-tag">${subPlan.goldCost}G</span>`;
+          return `
+            <button class="hok-tree-child ${held ? 'is-owned' : ''}" data-select-item="${sub.id}" type="button" style="border-color:${held ? '#22c55e' : subRm.border};">
+              <img src="${IconAtlas.getDataUrl(sub.iconKey)}" alt="" />
+              <span class="hok-node-name" style="color:${subRm.color};">${sub.name}</span>
+              ${subTag}
+            </button>
           `;
         })
         .join('');
-      bodyHtml = `
-        ${
-          upgradeables
-            ? `<h4 class="modal-sec-title" style="color:#38bdf8;">原地锻造升阶（已穿戴装备直接进阶）</h4>
-               <div class="item-grid" style="margin-bottom:12px;">${upgradeables}</div>`
-            : ''
-        }
-        <h4 class="modal-sec-title" style="color:#cbd5e1;">基础装备与合成散件</h4>
-        <div class="item-grid">
-          ${baseGear.map((it) => this.renderBuyCard(it.id)).join('')}
+
+      return `
+        <div class="hok-tree">
+          <div class="hok-tree-title">合成路线图（点小件可查看/单买）</div>
+          <div class="hok-tree-root ${rootOwned ? 'is-owned' : ''}" style="border-color:${RARITY_META[it.rarity].border};">
+            <img src="${IconAtlas.getDataUrl(it.iconKey)}" alt="" />
+            <span>${it.name}</span>
+            ${rootOwned ? '<span class="hok-node-tag ok">✓</span>' : ''}
+          </div>
+          <div class="hok-tree-stem"></div>
+          <div class="hok-tree-children">${childrenHtml}</div>
         </div>
-      `;
-    } else if (this.shopTab === 'synth') {
-      const recipes = ITEMS.filter((i) => i.recipe);
-      bodyHtml = `
-        <div class="item-grid">
-          ${recipes.map((it) => this.renderSynthCard(it.id)).join('')}
-        </div>
-      `;
-    } else if (this.shopTab === 'consumables') {
-      const cons = ITEMS.filter((i) => i.shopVisible && (i.category === 'consumable' || i.id === 'mat_stone'));
-      bodyHtml = `<div class="item-grid">${cons.map((it) => this.renderBuyCard(it.id)).join('')}</div>`;
-    } else if (this.shopTab === 'books') {
-      const books = ITEMS.filter((i) => i.shopVisible && i.category === 'book');
-      bodyHtml = `<div class="item-grid">${books.map((it) => this.renderBuyCard(it.id)).join('')}</div>`;
-    } else {
-      const allies = world.heroes.filter((h) => !h.isLocal);
-      bodyHtml = `
-        <h4 class="modal-sec-title" style="color:#fde047;">主装备栏（6 格即时生效属性）</h4>
-        <div class="item-grid" style="margin-bottom:12px;">
-          ${hero.inventory.map((id, idx) => this.renderSlotManageCard(id, true, idx, allies)).join('')}
-        </div>
-        <h4 class="modal-sec-title" style="color:#94a3b8;">随身储物箱（6 格暂存材料，合成自动读取）</h4>
-        <div class="item-grid" style="margin-bottom:12px;">
-          ${hero.stash.map((id, idx) => this.renderSlotManageCard(id, false, idx, allies)).join('')}
-        </div>
-        ${
-          allies.length > 0
-            ? `<div class="war3-card war3-stone-panel">
-                <strong style="font-size:13px;color:#4ade80;">转赠金币 / 灵晶给队友：</strong>
-                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">
-                  ${allies
-                    .map(
-                      (a) => `
-                    <button class="war3-btn" data-gift-gold="${a.id}" style="font-size:11px;padding:4px 8px;">赠 ${a.callsign} 300G</button>
-                    <button class="war3-btn war3-btn-green" data-gift-crys="${a.id}" style="font-size:11px;padding:4px 8px;">赠 ${a.callsign} 1木</button>
-                  `
-                    )
-                    .join('')}
-                </div>
-               </div>`
-            : ''
-        }
       `;
     }
 
-    return `
-      <div class="war3-modal-head">
-        <div class="modal-title-group">
-          <img class="modal-head-ico" src="${IconAtlas.getDataUrl('ui_ico_shop')}" alt="" />
-          <h2>铁匠铺 &amp; 神装合成炉</h2>
-          <div class="modal-res-chips">
-            <span class="modal-res-chip"><img src="${IconAtlas.getDataUrl('ui_ico_gold')}" alt="" />${Math.round(hero.gold)}</span>
-            <span class="modal-res-chip" style="color:#86efac;"><img src="${IconAtlas.getDataUrl('ui_ico_crystal')}" alt="" />${hero.crystal}木</span>
-            <span class="modal-res-chip" style="color:#7dd3fc;"><img src="${IconAtlas.getDataUrl('ui_ico_stone')}" alt="" />${hero.stones}石</span>
+    if (it.upgradesFrom) {
+      const chain = getUpgradeChain(it.id);
+      return `
+        <div class="hok-tree">
+          <div class="hok-tree-title">锻造进阶路线</div>
+          <div class="hok-chain-row">
+            ${chain
+              .map((step, i) => {
+                const held = this.isOwnedByHero(hero, step.id);
+                const sRm = RARITY_META[step.rarity];
+                return `
+                  ${i > 0 ? '<span class="hok-chain-arrow">→</span>' : ''}
+                  <button class="hok-chain-node ${step.id === it.id ? 'is-cur' : ''} ${held ? 'is-owned' : ''}"
+                          data-select-item="${step.id}" type="button" style="border-color:${sRm.border};">
+                    <img src="${IconAtlas.getDataUrl(step.iconKey)}" alt="" />
+                    <span>${step.name.slice(0, 4)}</span>
+                  </button>
+                `;
+              })
+              .join('')}
           </div>
         </div>
-        <button class="war3-btn war3-btn-red" id="btn-modal-close">关闭</button>
-      </div>
-      <div class="lobby-nav" style="padding:6px 14px;">
-        <button class="nav-tab ${this.shopTab === 'recommended' ? 'active' : ''}" data-shop-tab="recommended">推荐出装</button>
-        <button class="nav-tab ${this.shopTab === 'forge' ? 'active' : ''}" data-shop-tab="forge">锻造升阶</button>
-        <button class="nav-tab ${this.shopTab === 'synth' ? 'active' : ''}" data-shop-tab="synth">神装合成树</button>
-        <button class="nav-tab ${this.shopTab === 'consumables' ? 'active' : ''}" data-shop-tab="consumables">药水卷轴</button>
-        <button class="nav-tab ${this.shopTab === 'books' ? 'active' : ''}" data-shop-tab="books">属性神书</button>
-        <button class="nav-tab ${this.shopTab === 'bag' ? 'active' : ''}" data-shop-tab="bag">背包与赠送</button>
-      </div>
-      <div class="war3-modal-body">${bodyHtml}</div>
-    `;
-  }
-
-  private renderBuyCard(itemId: string): string {
-    const world = this.engine.world!;
-    const it = getItemDef(itemId)!;
-    const rm = RARITY_META[it.rarity];
-    const g = getDiscountedGold(world, it.costGold || 0);
-    return `
-      <div class="item-card" style="border-color:${rm.border};">
-        <div class="item-card-top">
-          <img src="${IconAtlas.getDataUrl(it.iconKey)}" alt="" />
-          <div>
-            <div style="font-weight:800;font-size:13px;color:${rm.color};">${it.name}</div>
-            <div style="font-size:11px;color:#94a3b8;">${it.desc}</div>
-          </div>
-        </div>
-        <button class="war3-btn war3-btn-gold" data-buy-id="${it.id}">购买 (${g}G${it.costCrystal ? ` + ${it.costCrystal}木` : ''})</button>
-      </div>
-    `;
-  }
-
-  private renderSynthCard(itemId: string): string {
-    const world = this.engine.world!;
-    const hero = this.engine.getLocalHero()!;
-    const it = getItemDef(itemId)!;
-    const rm = RARITY_META[it.rarity];
-    const plan = planSynthesis(world, hero, itemId);
-    const isPinned = hero.pinnedRecipeId === itemId;
-    return `
-      <div class="item-card" style="border-color:${rm.border};">
-        <div class="item-card-top">
-          <img src="${IconAtlas.getDataUrl(it.iconKey)}" alt="" />
-          <div>
-            <div style="font-weight:800;font-size:13px;color:${rm.color};">${it.name}</div>
-            <div style="font-size:11px;color:#94a3b8;">${it.desc}</div>
-          </div>
-        </div>
-        <div style="font-size:11px;color:#fde047;">
-          需要：${it.recipe!.items.map((id) => getItemDef(id)?.name || id).join(' + ')}
-        </div>
-        <div style="display:flex;gap:6px;">
-          <button class="war3-btn ${plan.canDo ? 'war3-btn-gold' : ''}" data-synth-id="${it.id}" style="flex:1;" ${plan.canDo ? '' : 'disabled'}>
-            ${plan.canDo ? `一键合成 (${plan.goldCost}G${plan.crystalCost ? `·${plan.crystalCost}木` : ''})` : plan.missingHardReason || '条件不足'}
-          </button>
-          <button class="war3-btn ${isPinned ? 'war3-btn-blue' : ''}" data-pin-id="${it.id}" title="收藏到战斗左侧快捷出装">
-            ${isPinned ? '已收藏' : '收藏'}
-          </button>
-        </div>
-      </div>
-    `;
-  }
-
-  private renderSlotManageCard(itemId: string | null, inInv: boolean, idx: number, allies: HeroEntity[]): string {
-    if (!itemId) {
-      return `<div class="item-card" style="opacity:0.5;justify-content:center;align-items:center;min-height:76px;font-size:12px;">空栏位 #${idx + 1}</div>`;
+      `;
     }
-    const it = getItemDef(itemId)!;
-    const rm = RARITY_META[it.rarity];
-    const next = getUpgradesTo(itemId);
-    return `
-      <div class="item-card" style="border-color:${rm.border};">
-        <div class="item-card-top">
-          <img src="${IconAtlas.getDataUrl(it.iconKey)}" alt="" />
-          <div>
-            <div style="font-weight:800;font-size:13px;color:${rm.color};">${it.name}${it.heroExclusive ? ` Lv.${this.engine.getLocalHero()!.exclusiveLevel}` : ''}</div>
-            <div style="font-size:11px;color:#94a3b8;">${it.desc}</div>
-          </div>
-        </div>
-        <div style="display:flex;gap:5px;flex-wrap:wrap;">
-          ${next ? `<button class="war3-btn war3-btn-blue" data-slot-upg="${inInv ? '1' : '0'}:${idx}" style="font-size:11px;padding:3px 7px;">升阶</button>` : ''}
-          <button class="war3-btn" data-slot-swap="${inInv ? '1' : '0'}:${idx}" style="font-size:11px;padding:3px 7px;">${inInv ? '存入箱子' : '穿戴装备'}</button>
-          ${!it.heroExclusive ? `<button class="war3-btn war3-btn-red" data-slot-sell="${inInv ? '1' : '0'}:${idx}" style="font-size:11px;padding:3px 7px;">出售</button>` : ''}
-          ${allies.map((a) => (!it.heroExclusive ? `<button class="war3-btn" data-slot-gift="${inInv ? '1' : '0'}:${idx}:${a.id}" style="font-size:10px;padding:3px 6px;">送给${a.callsign.slice(0, 4)}</button>` : '')).join('')}
-        </div>
-      </div>
-    `;
+
+    return '';
   }
 
   private buildTeleportModal(): string {
@@ -494,22 +848,59 @@ export class ModalsUI {
     const closeBtn = this.modalEl.querySelector('#btn-modal-close') as HTMLButtonElement | null;
     if (closeBtn) closeBtn.onclick = () => this.close();
 
-    this.modalEl.querySelectorAll('[data-shop-tab]').forEach((el) => {
+    this.modalEl.querySelectorAll('[data-shop-cat]').forEach((el) => {
       (el as HTMLElement).onclick = () => {
-        this.shopTab = (el as HTMLElement).dataset.shopTab as ShopTab;
+        this.shopCat = (el as HTMLElement).dataset.shopCat as ShopCategory;
+        if (this.shopCat !== 'stash_gift') {
+          this.selectedBagSlot = null;
+          const h = this.engine.getLocalHero();
+          if (h) {
+            const first = this.getShopGroupsForCategory(h)[0]?.items[0];
+            if (first) this.selectedShopItemId = first.id;
+          }
+        }
         this.render();
       };
     });
-    this.modalEl.querySelectorAll('[data-buy-id]').forEach((el) => {
+    this.modalEl.querySelectorAll('[data-shop-item]').forEach((el) => {
       (el as HTMLElement).onclick = () => {
-        this.engine.actionBuy((el as HTMLElement).dataset.buyId!);
+        const id = (el as HTMLElement).dataset.shopItem!;
+        const world = this.engine.world!;
+        const hero = this.engine.getLocalHero()!;
+        if (!this.selectedBagSlot && this.selectedShopItemId === id) {
+          if (planDirectAcquire(world, hero, id).canDo) {
+            this.engine.actionBuy(id);
+          }
+        } else {
+          this.selectedBagSlot = null;
+          this.selectedShopItemId = id;
+        }
         this.render();
       };
     });
-    this.modalEl.querySelectorAll('[data-synth-id]').forEach((el) => {
+    this.modalEl.querySelectorAll('[data-select-item]').forEach((el) => {
       (el as HTMLElement).onclick = () => {
-        this.engine.actionSynthesize((el as HTMLElement).dataset.synthId!);
+        this.selectedBagSlot = null;
+        this.selectedShopItemId = (el as HTMLElement).dataset.selectItem!;
         this.render();
+      };
+    });
+    this.modalEl.querySelectorAll('[data-hok-acquire]').forEach((el) => {
+      (el as HTMLElement).onclick = () => {
+        this.engine.actionBuy((el as HTMLElement).dataset.hokAcquire!);
+        this.render();
+      };
+    });
+    this.modalEl.querySelectorAll('[data-bag-slot]').forEach((el) => {
+      (el as HTMLElement).onclick = () => {
+        const [inv, idxStr] = (el as HTMLElement).dataset.bagSlot!.split(':');
+        const idx = Number(idxStr);
+        const h = this.engine.getLocalHero()!;
+        const arr = inv === '1' ? h.inventory : h.stash;
+        if (arr[idx]) {
+          this.selectedBagSlot = { inInv: inv === '1', idx };
+          this.render();
+        }
       };
     });
     this.modalEl.querySelectorAll('[data-pin-id]').forEach((el) => {
@@ -517,12 +908,6 @@ export class ModalsUI {
         const h = this.engine.getLocalHero()!;
         const id = (el as HTMLElement).dataset.pinId!;
         h.pinnedRecipeId = h.pinnedRecipeId === id ? null : id;
-        this.render();
-      };
-    });
-    this.modalEl.querySelectorAll('[data-upg-inv]').forEach((el) => {
-      (el as HTMLElement).onclick = () => {
-        this.engine.actionUpgradeSlot(true, Number((el as HTMLElement).dataset.upgInv));
         this.render();
       };
     });
@@ -537,6 +922,7 @@ export class ModalsUI {
       (el as HTMLElement).onclick = () => {
         const [inv, idx] = (el as HTMLElement).dataset.slotSell!.split(':');
         this.engine.actionSellSlot(inv === '1', Number(idx));
+        this.selectedBagSlot = null;
         this.render();
       };
     });

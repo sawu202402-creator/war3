@@ -57,8 +57,14 @@ export class HudUI {
           </div>
 
           <div class="hud-quickbuy-stack">
+            <button class="hok-left-shop-btn war3-stone-panel" id="hud-hok-shop-btn" type="button" title="随时打开局内商店">
+              <img class="hok-left-shop-coin" src="${IconAtlas.getDataUrl('ui_ico_gold')}" alt="" />
+              <span class="hok-left-shop-gold" id="hud-left-gold">320</span>
+              <span class="hok-left-shop-tag">商店</span>
+              <img class="hok-left-pin-ico" id="hud-left-pin-ico" src="" alt="" style="display:none;" />
+            </button>
             <div class="hud-quest-badge" id="hud-quest-badge" style="display:none;"></div>
-            <div id="hud-quickbuy-list" style="display:flex;flex-direction:column;gap:5px;"></div>
+            <div id="hud-quickbuy-list" style="display:flex;flex-direction:column;gap:4px;"></div>
           </div>
         </div>
 
@@ -352,6 +358,7 @@ export class HudUI {
 
     q('#hud-minimap-btn').onclick = () => this.handlers.onOpenTeleport();
     q('#hok-hero-pill').onclick = () => this.handlers.onOpenShop();
+    q('#hud-hok-shop-btn').onclick = () => this.handlers.onOpenShop();
     q('#btn-hud-pause').onclick = () => this.handlers.onOpenPause();
     q('#btn-early-wave').onclick = () => this.engine.actionBase('early_wave');
     q('#btn-bot-mode').onclick = () => {
@@ -549,8 +556,21 @@ export class HudUI {
       questEl.style.display = 'none';
     }
 
+    q('#hud-left-gold').textContent = `${Math.round(local.gold)}`;
+    const pinIco = q<HTMLImageElement>('#hud-left-pin-ico');
+    const pinnedDef = local.pinnedRecipeId ? getItemDef(local.pinnedRecipeId) : undefined;
+    if (pinnedDef) {
+      pinIco.style.display = 'block';
+      pinIco.src = IconAtlas.getDataUrl(pinnedDef.iconKey);
+      pinIco.title = `预购目标：${pinnedDef.name}`;
+    } else {
+      pinIco.style.display = 'none';
+    }
+
     const quicks = getQuickBuyOptions(world, local);
-    const qHash = quicks.map((x) => `${x.kind}:${x.itemId}`).join('|');
+    const qHash = `${local.pinnedRecipeId || ''}|${quicks
+      .map((x) => `${x.kind}:${x.itemId}:${x.goldCost}:${x.isPreorder ? 1 : 0}`)
+      .join('|')}`;
     if (qHash !== this.lastQuickHash) {
       this.lastQuickHash = qHash;
       const listEl = q('#hud-quickbuy-list');
@@ -558,11 +578,11 @@ export class HudUI {
         .map((qb, i) => {
           const def = getItemDef(qb.itemId);
           return `
-            <button class="quickbuy-btn" data-qb-idx="${i}" type="button">
+            <button class="quickbuy-btn ${qb.isPreorder ? 'is-preorder' : ''}" data-qb-idx="${i}" type="button">
               <img src="${IconAtlas.getDataUrl(def?.iconKey || 'item_wep_t1')}" alt="" />
-              <div style="text-align:left;">
-                <div style="font-size:11.5px;font-weight:800;color:#fde047;">${qb.label}</div>
-                <div style="font-size:10px;color:#cbd5e1;">${qb.subLabel}</div>
+              <div class="quickbuy-info">
+                <div class="quickbuy-label">${qb.isPreorder ? '<span class="qb-preorder-tag">预购</span>' : ''}${qb.label}</div>
+                <div class="quickbuy-sub">${qb.subLabel}</div>
               </div>
             </button>
           `;
