@@ -675,6 +675,15 @@ export class ModalsUI {
           ${zones
             .map((z) => {
               const cd = Math.ceil(world.dungeonRespawns[z.id] || 0);
+              const activeBoss = world.enemies.find((e) => e.zoneId === z.id && e.isBoss && e.hp > 0);
+              const bossTag =
+                z.id !== 'sanctuary' && !z.hasTiers && z.id !== 'stone_mine'
+                  ? cd > 0
+                    ? `<span style="color:#f87171;font-weight:700;">⏳ Boss冷却 ${cd}s</span>`
+                    : activeBoss
+                      ? `<span style="color:#fbbf24;font-weight:700;">⚔️ ${activeBoss.name} 交战中</span>`
+                      : `<span style="color:#4ade80;font-weight:700;">✨ Boss就绪</span>`
+                  : '';
               return `
                 <div class="item-card" style="border-color:${z.color};">
                   <div class="tp-card-top">
@@ -682,6 +691,7 @@ export class ModalsUI {
                     <div>
                       <div style="font-weight:800;font-size:13.5px;color:${z.color};">${z.name}</div>
                       <div style="font-size:11px;color:#cbd5e1;margin-top:2px;">${z.subtitle}</div>
+                      ${bossTag ? `<div style="font-size:10.5px;margin-top:2px;">${bossTag}</div>` : ''}
                     </div>
                   </div>
                   ${
@@ -724,7 +734,7 @@ export class ModalsUI {
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;">
           <button class="war3-btn war3-btn-gold" id="btn-base-upg">
             升级圣殿 (Lv.${lv}→${lv + 1})<br/>
-            <span style="font-size:11px;">+1400 HP · +4 甲 · +8 回血 (${upgGold}G${upgCrys ? ` + ${upgCrys}木` : ''})</span>
+            <span style="font-size:11px;">+1800 HP · +4 甲 · +9 回血 (${upgGold}G${upgCrys ? ` + ${upgCrys}木` : ''})</span>
           </button>
           <button class="war3-btn war3-btn-blue" id="btn-base-invuln" ${world.sanctuary.invulnCd > 0 ? 'disabled' : ''}>
             圣殿神圣无敌 (15秒)<br/>
@@ -746,7 +756,11 @@ export class ModalsUI {
                   <img class="tp-biome-thumb" src="${IconAtlas.getDataUrl(t.type ? `tower_${t.type}` : 'tower_base')}" alt="" style="border-color:#c8a24a;background:#090d16;" />
                   <div style="font-weight:800;font-size:13px;color:#fef3c7;">
                     ${t.label}<br/>
-                    <span style="font-size:11px;color:#cbd5e1;font-weight:600;">${t.type ? `${t.type === 'arrow' ? '精灵箭塔' : t.type === 'frost' ? '寒冰减速塔' : '圣光治疗塔'} Lv.${t.level}` : '空基座'}</span>
+                    <span style="font-size:11px;color:#cbd5e1;font-weight:600;">${
+                      t.type
+                        ? `${t.type === 'arrow' ? '精灵箭塔 (高爆单体)' : t.type === 'frost' ? '寒冰减速塔 (群伤+48%缓速)' : '圣光治疗塔 (打击+修圣殿)'} Lv.${t.level}`
+                        : '空基座 · 可选箭/冰/圣光三种守塔流派'
+                    }</span>
                   </div>
                 </div>
                 <div style="display:flex;gap:5px;flex-wrap:wrap;">
@@ -756,9 +770,9 @@ export class ModalsUI {
                           ${t.level >= 5 ? '已满级' : `升级至 Lv.${t.level + 1} (${380 + t.level * 220}G${t.level >= 2 ? ' + 1木' : ''})`}
                          </button>`
                       : `
-                        <button class="war3-btn war3-btn-green" data-tower="${t.slotId}:arrow" style="font-size:11px;padding:4px 8px;">建箭塔(320G)</button>
-                        <button class="war3-btn war3-btn-blue" data-tower="${t.slotId}:frost" style="font-size:11px;padding:4px 8px;">建冰塔(320G)</button>
-                        <button class="war3-btn war3-btn-gold" data-tower="${t.slotId}:holy" style="font-size:11px;padding:4px 8px;">建圣光塔(320G)</button>
+                        <button class="war3-btn war3-btn-green" data-tower="${t.slotId}:arrow" style="font-size:11px;padding:4px 8px;">建箭塔·高攻(320G)</button>
+                        <button class="war3-btn war3-btn-blue" data-tower="${t.slotId}:frost" style="font-size:11px;padding:4px 8px;">建冰塔·缓速(320G)</button>
+                        <button class="war3-btn war3-btn-gold" data-tower="${t.slotId}:holy" style="font-size:11px;padding:4px 8px;">建圣光·回血(320G)</button>
                       `
                   }
                 </div>

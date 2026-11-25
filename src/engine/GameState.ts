@@ -151,6 +151,8 @@ export interface HeroEntity {
   netAngle?: number;
 }
 
+export type EnemyAffix = 'bloodlust' | 'armored' | 'swift' | 'blazing';
+
 export interface EnemyEntity {
   id: number;
   kind: EnemyKind;
@@ -207,6 +209,8 @@ export interface EnemyEntity {
   // Boss AI & Kinematics
   bossAbilityTimer: number;
   bossPhase: number;
+  affix?: EnemyAffix;
+  burnAuraTimer?: number;
   fleeTimer: number; // for treasure goblin
   splitGeneration: number;
   prevX: number;
@@ -282,11 +286,15 @@ export interface TelegraphZone {
   kind: 'enemy_aoe' | 'enemy_laser' | 'blizzard' | 'starfall' | 'sanctuary' | 'poison_pool';
   x: number;
   y: number;
+  tx?: number;
+  ty?: number;
+  width?: number;
   radius: number;
   timer: number;
   maxTimer: number;
   tickTimer: number;
   damage: number;
+  fired?: boolean;
   healPerSec?: number;
   slowPct?: number;
   freezeSec?: number;
@@ -360,7 +368,7 @@ export interface GameWorldState {
   wavePrepTimer: number;
   wavePauseCountUsed: number;
   maxWavePauses: number;
-  waveSpawnQueue: { kind: EnemyKind; laneId: number }[];
+  waveSpawnQueue: { kind: EnemyKind; laneId: number; affix?: EnemyAffix }[];
   waveSpawnCooldown: number;
   victory: boolean;
   ended: boolean;

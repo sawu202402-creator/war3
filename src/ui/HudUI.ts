@@ -493,7 +493,9 @@ export class HudUI {
     if (activeBoss) {
       bossBar.style.display = 'block';
       q('#hud-boss-fill').style.width = `${Math.max(0, (activeBoss.hp / activeBoss.maxHp) * 100).toFixed(1)}%`;
-      q('#hud-boss-txt-span').textContent = `${activeBoss.name} · ${Math.round(activeBoss.hp)}/${Math.round(activeBoss.maxHp)}`;
+      const phaseTag = activeBoss.bossPhase >= 2 ? ' 【P2狂暴】' : '';
+      const shieldTxt = activeBoss.shield > 0 ? ` (+盾${Math.round(activeBoss.shield)})` : '';
+      q('#hud-boss-txt-span').textContent = `${activeBoss.name}${phaseTag} · ${Math.round(activeBoss.hp)}/${Math.round(activeBoss.maxHp)}${shieldTxt}`;
     } else {
       bossBar.style.display = 'none';
     }

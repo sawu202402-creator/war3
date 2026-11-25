@@ -4,17 +4,18 @@ import { getWaveDef } from '../data/waves';
 import { ATHENA_POS, CONVERGENCE_POS, HERO_FORMATION_OFFSETS, HERO_SPAWN_POS, WAVE_LANES, ZONES, clampToRect } from '../data/worldMap';
 import { SaveManager } from '../meta/SaveManager';
 import { EnemyKind } from '../types';
-import { handleEnemyDeathDrops, spawnEnemy, teleportHeroToZone } from './BranchSystem';
+import { applyEnemyAffix, handleEnemyDeathDrops, spawnEnemy, teleportHeroToZone } from './BranchSystem';
 import {
   addFloatingText,
   applyDamageToEnemy,
   applyDamageToHero,
   castHeroSkill,
+  distPointToSegment,
   maybeTriggerOrbChain,
   performBasicAttack,
 } from './CombatSystem';
 import { buyItem, getQuickBuyOptions, synthesizeItem, upgradeItemInSlot, usePotionSlot } from './EconomySystem';
-import { EnemyEntity, GameWorldState, HeroEntity } from './GameState';
+import { EnemyAffix, EnemyEntity, GameWorldState, HeroEntity } from './GameState';
 
 export function startWave(world: GameWorldState, waveNum: number): void {
   world.wave = waveNum;
@@ -23,7 +24,7 @@ export function startWave(world: GameWorldState, waveNum: number): void {
   const diff = DIFFICULTIES[world.difficulty];
   const coopCountScale = 1 + (world.playerCount - 1) * 0.35;
 
-  const queue: { kind: EnemyKind; laneId: number }[] = [];
+  const queue: { kind: EnemyKind; laneId: number; affix?: EnemyAffix }[] = [];
   for (const g of waveDef.groups) {
     const total = Math.max(1, Math.round(g.count * diff.countMult * coopCountScale));
     for (let i = 0; i < total; i++) {
@@ -31,11 +32,30 @@ export function startWave(world: GameWorldState, waveNum: number): void {
       queue.push({ kind: g.kind, laneId });
     }
   }
-  if (waveDef.boss) {
-    queue.push({ kind: waveDef.boss, laneId: 1 });
-    if (waveNum >= 20 && diff.doubleBossOn20) {
-      queue.push({ kind: 'boss_frost_wyrm', laneId: 0 });
+
+  let hasElites = false;
+  if (waveNum >= 4 && queue.length > 0) {
+    const affixes: EnemyAffix[] = ['bloodlust', 'armored', 'swift', 'blazing'];
+    const eligible = queue
+      .map((item, idx) => ({ item, idx }))
+      .filter(({ item }) => item.kind !== 'bomb_golem' && item.kind !== 'shaman_healer' && item.kind !== 'split_slime');
+    if (eligible.length > 0) {
+      const targetCount = Math.min(eligible.length, waveNum >= 10 ? 3 : waveNum >= 7 ? 2 : 1);
+      for (let k = 0; k < targetCount; k++) {
+        const pickPos = Math.min(eligible.length - 1, Math.floor(((k + 1) * eligible.length) / (targetCount + 1)));
+        eligible[pickPos].item.affix = affixes[(waveNum + k) % affixes.length];
+        hasElites = true;
+      }
     }
+  }
+
+  if (waveDef.boss) {
+    const insertIdx = Math.max(0, Math.floor(queue.length * 0.65));
+    const bosses: { kind: EnemyKind; laneId: number; affix?: EnemyAffix }[] = [{ kind: waveDef.boss, laneId: 1 }];
+    if (waveNum >= 20 && diff.doubleBossOn20) {
+      bosses.push({ kind: 'boss_frost_wyrm', laneId: 0 });
+    }
+    queue.splice(insertIdx, 0, ...bosses);
     SoundFX.playBossHorn();
     SoundFX.setBgmMode('boss');
   } else {
@@ -44,7 +64,7 @@ export function startWave(world: GameWorldState, waveNum: number): void {
 
   world.waveSpawnQueue = queue;
   world.waveSpawnCooldown = 0.2;
-  world.bannerText = `⚔️ 第 ${waveNum} 波：${waveDef.title}`;
+  world.bannerText = `⚔️ 第 ${waveNum} 波：${waveDef.title}${hasElites && !waveDef.boss ? ' · 精英词缀队长出没！' : ''}`;
   world.bannerColor = waveDef.boss ? '#f43f5e' : '#fbbf24';
   world.bannerTimer = 3.8;
 }
@@ -88,7 +108,7 @@ export function updateWaveDirector(
           const flank = i >= 3 ? -12 : 12;
           const sx = lane.spawn.x + flank + (Math.random() - 0.5) * 20;
           const sy = lane.spawn.y + (Math.random() - 0.5) * 26;
-          spawnEnemy(
+          const spawned = spawnEnemy(
             world,
             item.kind,
             'sanctuary',
@@ -99,6 +119,9 @@ export function updateWaveDirector(
             1.0,
             lane.id
           );
+          if (item.affix) {
+            applyEnemyAffix(spawned, item.affix);
+          }
         }
         world.waveSpawnCooldown = world.wave <= 3 ? 0.92 : world.wave >= 8 ? 0.62 : 0.72;
       }
@@ -192,8 +215,37 @@ export function updateEnemies(world: GameWorldState, dt: number): void {
 
     if (e.stunTimer > 0) continue;
 
-    // Boss special abilities with ground warning telegraphs
+    // Blazing elite affix periodic fire ring aura
+    if (e.affix === 'blazing') {
+      e.burnAuraTimer = (e.burnAuraTimer ?? 1.2) - dt;
+      if (e.burnAuraTimer <= 0) {
+        e.burnAuraTimer = 1.4;
+        world.vfx.push({ kind: 'ring', x: e.x, y: e.y, radius: 115, color: '#fb923c', life: 0.35, maxLife: 0.35 });
+        const burnPulseDmg = Math.round(e.dmg * 0.45);
+        for (const h of world.heroes) {
+          if (!h.dead && h.zoneId === e.zoneId && Math.hypot(h.x - e.x, h.y - e.y) <= 115) {
+            applyDamageToHero(world, h, burnPulseDmg, e);
+          }
+        }
+      }
+    }
+
+    // Boss Phase 2 Enrage transition (<= 50% HP) & signature abilities
     if (e.isBoss) {
+      if (e.bossPhase === 1 && e.hp <= e.maxHp * 0.5) {
+        e.bossPhase = 2;
+        e.moveSpeed = Math.round(e.moveSpeed * 1.22);
+        e.attackCd = Math.max(0.55, e.attackCd * 0.78);
+        e.shield = Math.max(e.shield, Math.round(e.maxHp * 0.12));
+        e.bossAbilityTimer = Math.min(e.bossAbilityTimer, 0.8);
+        world.vfx.push({ kind: 'explosion', x: e.x, y: e.y, radius: 170, color: '#f43f5e', life: 0.5, maxLife: 0.5 });
+        world.cameraShake = Math.max(world.cameraShake, 7);
+        SoundFX.playBossHorn();
+        addFloatingText(world, e.x, e.y - 46, '狂暴第二阶段！', '#f43f5e', 16);
+        world.bannerText = `🔥 ${e.name} 血量跌破 50%，进入【狂暴 P2】！`;
+        world.bannerColor = '#f43f5e';
+        world.bannerTimer = 3.2;
+      }
       e.bossAbilityTimer -= dt;
       if (e.bossAbilityTimer <= 0) {
         triggerBossAbility(world, e);
@@ -362,13 +414,86 @@ export function updateEnemies(world: GameWorldState, dt: number): void {
   }
 }
 
+function pushBossProjectileFan(
+  world: GameWorldState,
+  boss: EnemyEntity,
+  baseAngle: number,
+  count: number,
+  spread: number,
+  speed: number,
+  dmg: number,
+  color: string,
+  isMagic: boolean
+): void {
+  for (let k = 0; k < count; k++) {
+    const offset = count <= 1 ? 0 : (k / (count - 1) - 0.5) * spread;
+    const ang = baseAngle + offset;
+    world.projectiles.push({
+      id: world.nextEntityId++,
+      fromEnemy: true,
+      ownerId: `boss_${boss.id}`,
+      zoneId: boss.zoneId,
+      x: boss.x,
+      y: boss.y,
+      vx: Math.cos(ang) * speed,
+      vy: Math.sin(ang) * speed,
+      radius: 9,
+      damage: dmg,
+      isMagic,
+      isSiege: true,
+      color,
+      pierceLeft: 0,
+      hitIds: [],
+      life: 1.65,
+      targetAthena: false,
+    });
+  }
+}
+
+function pushBossLaser(
+  world: GameWorldState,
+  boss: EnemyEntity,
+  targetX: number,
+  targetY: number,
+  range: number,
+  width: number,
+  dmg: number,
+  color: string,
+  chargeSec = 1.15
+): void {
+  const ang = Math.atan2(targetY - boss.y, targetX - boss.x);
+  world.telegraphs.push({
+    id: world.nextEntityId++,
+    fromEnemy: true,
+    ownerId: `boss_${boss.id}`,
+    zoneId: boss.zoneId,
+    kind: 'enemy_laser',
+    x: boss.x,
+    y: boss.y,
+    tx: boss.x + Math.cos(ang) * range,
+    ty: boss.y + Math.sin(ang) * range,
+    width,
+    radius: Math.max(60, width),
+    timer: chargeSec,
+    maxTimer: chargeSec,
+    tickTimer: 99,
+    fired: false,
+    damage: dmg,
+    color,
+  });
+}
+
 function triggerBossAbility(world: GameWorldState, boss: EnemyEntity): void {
-  const nearest = findNearestHeroInZone(world, boss.zoneId, boss.x, boss.y, 480);
+  const nearest = findNearestHeroInZone(world, boss.zoneId, boss.x, boss.y, 560);
   const tx = nearest ? nearest.x : boss.zoneId === 'sanctuary' ? ATHENA_POS.x : boss.x;
   const ty = nearest ? nearest.y : boss.zoneId === 'sanctuary' ? ATHENA_POS.y : boss.y;
+  const aimAng = Math.atan2(ty - boss.y, tx - boss.x);
+  const isP2 = boss.bossPhase >= 2;
 
   if (boss.kind === 'boss_skeleton_king') {
-    boss.bossAbilityTimer = 5.0;
+    boss.bossAbilityTimer = isP2 ? 3.8 : 4.8;
+    boss.shield = Math.max(boss.shield, Math.round(boss.maxHp * (isP2 ? 0.14 : 0.08)));
+    addFloatingText(world, boss.x, boss.y - 38, '骸骨旋风斩 + 骨盾！', '#38bdf8', 13);
     world.telegraphs.push({
       id: world.nextEntityId++,
       fromEnemy: true,
@@ -377,20 +502,24 @@ function triggerBossAbility(world: GameWorldState, boss: EnemyEntity): void {
       kind: 'enemy_aoe',
       x: boss.x,
       y: boss.y,
-      radius: 175,
-      timer: 1.05,
-      maxTimer: 1.05,
+      radius: 180,
+      timer: 1.0,
+      maxTimer: 1.0,
       tickTimer: 99,
-      damage: boss.dmg * 2.4,
+      damage: boss.dmg * (isP2 ? 2.8 : 2.35),
       color: '#38bdf8',
     });
     if (world.enemies.filter((x) => x.zoneId === boss.zoneId).length < 24) {
-      spawnEnemy(world, 'skeleton_archer', boss.zoneId, boss.x - 65, boss.y + 40, Math.max(1.2, world.wave * 0.35), 1.15);
-      spawnEnemy(world, 'skeleton_archer', boss.zoneId, boss.x + 65, boss.y + 40, Math.max(1.2, world.wave * 0.35), 1.15);
-      spawnEnemy(world, 'skeleton_archer', boss.zoneId, boss.x, boss.y + 70, Math.max(1.2, world.wave * 0.35), 1.15);
+      const sumCount = isP2 ? 4 : 3;
+      for (let s = 0; s < sumCount; s++) {
+        const ang = (s / sumCount) * Math.PI * 2;
+        const pos = clampToRect(boss.x + Math.cos(ang) * 75, boss.y + Math.sin(ang) * 65, 22, ZONES[boss.zoneId].rect);
+        spawnEnemy(world, 'skeleton_archer', boss.zoneId, pos.x, pos.y, Math.max(1.2, world.wave * 0.35), 1.15);
+      }
     }
   } else if (boss.kind === 'boss_abyss_lord') {
-    boss.bossAbilityTimer = 4.2;
+    boss.bossAbilityTimer = isP2 ? 3.4 : 4.2;
+    addFloatingText(world, boss.x, boss.y - 38, '虚空毒沼 + 暗影齐射！', '#a855f7', 13);
     world.telegraphs.push({
       id: world.nextEntityId++,
       fromEnemy: true,
@@ -399,54 +528,168 @@ function triggerBossAbility(world: GameWorldState, boss: EnemyEntity): void {
       kind: 'poison_pool',
       x: tx,
       y: ty,
-      radius: 155,
-      timer: 4.5,
-      maxTimer: 4.5,
+      radius: 160,
+      timer: 4.8,
+      maxTimer: 4.8,
       tickTimer: 0.35,
-      damage: boss.dmg * 0.72,
+      damage: boss.dmg * 0.76,
       color: '#a855f7',
     });
+    pushBossProjectileFan(world, boss, aimAng, isP2 ? 7 : 5, 1.35, 360, boss.dmg * 1.15, '#a855f7', true);
   } else if (boss.kind === 'boss_frost_wyrm') {
-    boss.bossAbilityTimer = 4.0;
-    boss.shield = Math.max(boss.shield, boss.maxHp * 0.1);
-    for (let k = 0; k < 3; k++) {
+    boss.bossAbilityTimer = isP2 ? 3.3 : 4.1;
+    boss.shield = Math.max(boss.shield, Math.round(boss.maxHp * 0.12));
+    addFloatingText(world, boss.x, boss.y - 38, '极寒吐息射线！', '#67e8f9', 13);
+    pushBossLaser(world, boss, tx, ty, 480, 64, boss.dmg * (isP2 ? 2.85 : 2.35), '#38bdf8', 1.15);
+    const novaCount = isP2 ? 3 : 2;
+    for (let k = 0; k < novaCount; k++) {
       world.telegraphs.push({
         id: world.nextEntityId++,
         fromEnemy: true,
         ownerId: `boss_${boss.id}`,
         zoneId: boss.zoneId,
         kind: 'enemy_aoe',
-        x: tx + (k === 0 ? 0 : (Math.random() - 0.5) * 220),
-        y: ty + (k === 0 ? 0 : (Math.random() - 0.5) * 220),
-        radius: 145,
+        x: tx + (k === 0 ? 0 : (Math.random() - 0.5) * 230),
+        y: ty + (k === 0 ? 0 : (Math.random() - 0.5) * 210),
+        radius: 140,
         timer: 1.15,
         maxTimer: 1.15,
         tickTimer: 99,
-        damage: boss.dmg * 2.5,
+        damage: boss.dmg * 2.25,
         color: '#67e8f9',
       });
     }
   } else if (boss.kind === 'boss_doom_overlord' || boss.kind === 'boss_hidden_chaos') {
-    boss.bossAbilityTimer = boss.hp < boss.maxHp * 0.5 ? 3.2 : 4.2;
-    for (let k = 0; k < 4; k++) {
+    boss.bossAbilityTimer = isP2 ? 3.0 : 4.0;
+    addFloatingText(world, boss.x, boss.y - 38, isP2 ? '混沌末日 · 狱火射线！' : '末日陨星轰击！', '#f43f5e', 14);
+    pushBossLaser(world, boss, tx, ty, 520, 68, boss.dmg * (isP2 ? 3.0 : 2.5), '#ef4444', 1.1);
+    const meteorCount = isP2 ? 5 : 3;
+    for (let k = 0; k < meteorCount; k++) {
       world.telegraphs.push({
         id: world.nextEntityId++,
         fromEnemy: true,
         ownerId: `boss_${boss.id}`,
         zoneId: boss.zoneId,
         kind: 'enemy_aoe',
-        x: tx + (Math.random() - 0.5) * 260,
-        y: ty + (Math.random() - 0.5) * 260,
-        radius: 150,
+        x: tx + (k === 0 ? 0 : (Math.random() - 0.5) * 280),
+        y: ty + (k === 0 ? 0 : (Math.random() - 0.5) * 260),
+        radius: 145,
         timer: 1.05,
         maxTimer: 1.05,
         tickTimer: 99,
-        damage: boss.dmg * 2.6,
+        damage: boss.dmg * 2.45,
         color: '#f43f5e',
       });
     }
+    if (isP2) {
+      pushBossProjectileFan(world, boss, aimAng, 8, Math.PI * 1.75, 330, boss.dmg * 1.1, '#fb923c', true);
+      if (world.enemies.filter((x) => x.zoneId === boss.zoneId).length < 24) {
+        const gPos = clampToRect(tx + 55, ty + 45, 22, ZONES[boss.zoneId].rect);
+        spawnEnemy(world, 'orc_berserker', boss.zoneId, gPos.x, gPos.y, Math.max(1.4, world.wave * 0.4), 1.2);
+      }
+    }
+  } else if (boss.kind === 'boss_fire_lord') {
+    boss.bossAbilityTimer = isP2 ? 3.4 : 4.3;
+    addFloatingText(world, boss.x, boss.y - 38, '焚天烈焰弹幕！', '#fb923c', 13);
+    world.telegraphs.push({
+      id: world.nextEntityId++,
+      fromEnemy: true,
+      ownerId: `boss_${boss.id}`,
+      zoneId: boss.zoneId,
+      kind: 'enemy_aoe',
+      x: tx,
+      y: ty,
+      radius: 150,
+      timer: 1.0,
+      maxTimer: 1.0,
+      tickTimer: 99,
+      damage: boss.dmg * (isP2 ? 2.55 : 2.2),
+      color: '#fb923c',
+    });
+    pushBossProjectileFan(world, boss, aimAng, isP2 ? 8 : 5, isP2 ? 1.9 : 1.35, 360, boss.dmg * 1.15, '#fb923c', true);
+  } else if (boss.kind === 'boss_ice_phoenix') {
+    boss.bossAbilityTimer = isP2 ? 3.4 : 4.2;
+    addFloatingText(world, boss.x, boss.y - 38, '冰凤霜环绽放！', '#67e8f9', 13);
+    const ringCount = isP2 ? 12 : 8;
+    pushBossProjectileFan(world, boss, aimAng, ringCount, Math.PI * 2 * ((ringCount - 1) / ringCount), 320, boss.dmg * 1.1, '#67e8f9', true);
+    world.telegraphs.push({
+      id: world.nextEntityId++,
+      fromEnemy: true,
+      ownerId: `boss_${boss.id}`,
+      zoneId: boss.zoneId,
+      kind: 'enemy_aoe',
+      x: tx,
+      y: ty,
+      radius: 140,
+      timer: 1.0,
+      maxTimer: 1.0,
+      tickTimer: 99,
+      damage: boss.dmg * 2.25,
+      color: '#38bdf8',
+    });
+  } else if (boss.kind === 'boss_thunder_roc') {
+    boss.bossAbilityTimer = isP2 ? 3.3 : 4.2;
+    addFloatingText(world, boss.x, boss.y - 38, '瞬雷突袭 · 天罚激光！', '#a855f7', 13);
+    if (nearest) {
+      world.vfx.push({ kind: 'teleport', x: boss.x, y: boss.y, radius: 58, color: '#a855f7', life: 0.4, maxLife: 0.4 });
+      const bPos = clampToRect(tx - Math.cos(aimAng) * 95, ty - Math.sin(aimAng) * 95, boss.radius + 8, ZONES[boss.zoneId].rect);
+      boss.x = bPos.x;
+      boss.y = bPos.y;
+      world.vfx.push({ kind: 'teleport', x: boss.x, y: boss.y, radius: 58, color: '#38bdf8', life: 0.4, maxLife: 0.4 });
+    }
+    pushBossLaser(world, boss, tx, ty, 460, 56, boss.dmg * (isP2 ? 2.75 : 2.3), '#a855f7', 1.0);
+  } else if (boss.kind === 'boss_ancient_treant') {
+    boss.bossAbilityTimer = isP2 ? 3.8 : 4.6;
+    if (boss.hp < boss.maxHp) {
+      const healAmt = Math.min(boss.maxHp - boss.hp, Math.round(boss.maxHp * (isP2 ? 0.07 : 0.05)));
+      if (healAmt > 0) {
+        boss.hp += healAmt;
+        world.vfx.push({ kind: 'ring', x: boss.x, y: boss.y, radius: 95, color: '#4ade80', life: 0.5, maxLife: 0.5 });
+        addFloatingText(world, boss.x, boss.y - 38, `自然再生 +${healAmt}`, '#4ade80', 13);
+      }
+    }
+    world.telegraphs.push({
+      id: world.nextEntityId++,
+      fromEnemy: true,
+      ownerId: `boss_${boss.id}`,
+      zoneId: boss.zoneId,
+      kind: 'poison_pool',
+      x: tx,
+      y: ty,
+      radius: 145,
+      timer: 4.2,
+      maxTimer: 4.2,
+      tickTimer: 0.4,
+      damage: boss.dmg * 0.68,
+      color: '#4ade80',
+    });
+  } else if (boss.kind === 'boss_trial_mirror') {
+    boss.bossAbilityTimer = isP2 ? 3.2 : 4.0;
+    addFloatingText(world, boss.x, boss.y - 38, '幻影鬼步 · 剑刃扇斩！', '#fde047', 13);
+    if (nearest) {
+      world.vfx.push({ kind: 'teleport', x: boss.x, y: boss.y, radius: 54, color: '#fde047', life: 0.35, maxLife: 0.35 });
+      const bPos = clampToRect(tx + Math.cos(aimAng) * 78, ty + Math.sin(aimAng) * 78, boss.radius + 8, ZONES[boss.zoneId].rect);
+      boss.x = bPos.x;
+      boss.y = bPos.y;
+    }
+    const postAng = Math.atan2(ty - boss.y, tx - boss.x);
+    pushBossProjectileFan(world, boss, postAng, isP2 ? 7 : 5, 1.3, 410, boss.dmg * 1.15, '#fde047', false);
+    world.telegraphs.push({
+      id: world.nextEntityId++,
+      fromEnemy: true,
+      ownerId: `boss_${boss.id}`,
+      zoneId: boss.zoneId,
+      kind: 'enemy_aoe',
+      x: tx,
+      y: ty,
+      radius: 135,
+      timer: 0.95,
+      maxTimer: 0.95,
+      tickTimer: 99,
+      damage: boss.dmg * 2.25,
+      color: boss.accentColor,
+    });
   } else {
-    // Elemental dungeon bosses
     boss.bossAbilityTimer = 4.5;
     world.telegraphs.push({
       id: world.nextEntityId++,
@@ -463,6 +706,7 @@ function triggerBossAbility(world: GameWorldState, boss: EnemyEntity): void {
       damage: boss.dmg * 2.35,
       color: boss.accentColor,
     });
+    pushBossProjectileFan(world, boss, aimAng, 3, 0.85, 340, boss.dmg * 1.1, boss.accentColor, true);
   }
 }
 
@@ -574,6 +818,25 @@ export function updateTelegraphsAndProjectiles(world: GameWorldState, dt: number
           applyDamageToSanctuary(world, t.damage * 0.7, true);
         }
         world.telegraphs.splice(i, 1);
+        continue;
+      } else if (t.kind === 'enemy_laser') {
+        if (t.timer <= 0.22 && !t.fired) {
+          t.fired = true;
+          const ex = t.tx ?? t.x;
+          const ey = t.ty ?? t.y;
+          const halfW = (t.width || 54) * 0.5;
+          for (const h of world.heroes) {
+            if (!h.dead && h.zoneId === t.zoneId && distPointToSegment(h.x, h.y, t.x, t.y, ex, ey) <= halfW + 18) {
+              applyDamageToHero(world, h, t.damage);
+            }
+          }
+          if (t.zoneId === 'sanctuary' && distPointToSegment(ATHENA_POS.x, ATHENA_POS.y, t.x, t.y, ex, ey) <= halfW + ATHENA_POS.radius) {
+            applyDamageToSanctuary(world, t.damage * 0.65, true);
+          }
+          world.vfx.push({ kind: 'explosion', x: ex, y: ey, radius: halfW * 1.8, color: t.color, life: 0.35, maxLife: 0.35 });
+          world.cameraShake = Math.max(world.cameraShake, 6);
+        }
+        if (t.timer <= 0) world.telegraphs.splice(i, 1);
         continue;
       } else if (t.kind === 'poison_pool') {
         t.tickTimer -= dt;

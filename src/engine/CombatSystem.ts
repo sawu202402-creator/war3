@@ -391,6 +391,13 @@ export function applyDamageToHero(world: GameWorldState, hero: HeroEntity, rawDm
     attacker.hp -= Math.round(reflect);
     attacker.hitFlash = 0.08;
   }
+  if (attacker && attacker.hp > 0 && attacker.affix === 'bloodlust') {
+    const leech = Math.min(attacker.maxHp - attacker.hp, Math.max(10, Math.round(dmg * 0.45)));
+    if (leech > 0) {
+      attacker.hp += leech;
+      addFloatingText(world, attacker.x, attacker.y - 24, `+${leech}`, '#f87171', 11);
+    }
+  }
 
   if (hero.shield > 0) {
     const ab = Math.min(hero.shield, dmg);

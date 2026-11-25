@@ -7,7 +7,49 @@ import { SaveManager } from '../meta/SaveManager';
 import { EnemyKind, ZoneId } from '../types';
 import { addFloatingText, grantHeroXp, recalcHeroStats } from './CombatSystem';
 import { countOwnedItem } from './EconomySystem';
-import { EnemyEntity, GameWorldState, HeroEntity } from './GameState';
+import { EnemyAffix, EnemyEntity, GameWorldState, HeroEntity } from './GameState';
+
+export function applyEnemyAffix(e: EnemyEntity, affix: EnemyAffix): void {
+  if (e.isBoss || e.affix) return;
+  e.affix = affix;
+  e.radius = Math.round(e.radius * 1.18);
+  if (affix === 'bloodlust') {
+    e.name = `【嗜血】${e.name}`;
+    e.maxHp = Math.round(e.maxHp * 2.45);
+    e.hp = e.maxHp;
+    e.dmg = Math.round(e.dmg * 1.32);
+    e.moveSpeed = Math.round(e.moveSpeed * 1.1);
+    e.color = '#dc2626';
+    e.accentColor = '#fca5a5';
+  } else if (affix === 'armored') {
+    e.name = `【铁壁】${e.name}`;
+    e.maxHp = Math.round(e.maxHp * 2.85);
+    e.hp = e.maxHp;
+    e.armor += 10;
+    e.dmg = Math.round(e.dmg * 1.18);
+    e.color = '#d97706';
+    e.accentColor = '#fde047';
+  } else if (affix === 'swift') {
+    e.name = `【疾风】${e.name}`;
+    e.maxHp = Math.round(e.maxHp * 2.15);
+    e.hp = e.maxHp;
+    e.moveSpeed = Math.round(e.moveSpeed * 1.34);
+    e.attackCd = Math.max(0.45, e.attackCd * 0.76);
+    e.dmg = Math.round(e.dmg * 1.25);
+    e.color = '#10b981';
+    e.accentColor = '#6ee7b7';
+  } else if (affix === 'blazing') {
+    e.name = `【炽焰】${e.name}`;
+    e.maxHp = Math.round(e.maxHp * 2.4);
+    e.hp = e.maxHp;
+    e.dmg = Math.round(e.dmg * 1.28);
+    e.burnAuraTimer = 1.2;
+    e.color = '#ea580c';
+    e.accentColor = '#fdba74';
+  }
+  e.goldReward = Math.round(e.goldReward * 2.6);
+  e.xpReward = Math.round(e.xpReward * 2.4);
+}
 
 export function spawnEnemy(
   world: GameWorldState,
@@ -320,6 +362,18 @@ export function handleEnemyDeathDrops(world: GameWorldState, enemy: EnemyEntity,
         }
       }
     }
+  }
+  if (enemy.affix && Math.random() < 0.42 && world.drops.length < 180) {
+    world.drops.push({
+      id: world.nextEntityId++,
+      zoneId: enemy.zoneId,
+      x: enemy.x + (Math.random() - 0.5) * 18,
+      y: enemy.y + (Math.random() - 0.5) * 18,
+      kind: 'stone',
+      amount: 1,
+      itemId: 'mat_stone',
+      life: 32,
+    });
   }
 
   // Special Branch Boss Clear Hooks

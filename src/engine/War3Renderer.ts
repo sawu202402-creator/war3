@@ -230,7 +230,17 @@ export class War3Renderer {
 
     // 4. Boss / Skill Ground Telegraphs (100% raster warning rings & storm overlays)
     for (const t of world.telegraphs) {
-      if (t.x + t.radius < minX || t.x - t.radius > maxX || t.y + t.radius < minY || t.y - t.radius > maxY) continue;
+      const endX = t.tx ?? t.x;
+      const endY = t.ty ?? t.y;
+      const cullPad = Math.max(t.radius, t.width || 0);
+      if (
+        Math.max(t.x, endX) + cullPad < minX ||
+        Math.min(t.x, endX) - cullPad > maxX ||
+        Math.max(t.y, endY) + cullPad < minY ||
+        Math.min(t.y, endY) - cullPad > maxY
+      ) {
+        continue;
+      }
       if (t.kind === 'enemy_aoe') {
         const fillRatio = 1 - Math.max(0, t.timer / Math.max(0.001, t.maxTimer));
         const diam = t.radius * 2.08;
@@ -244,6 +254,67 @@ export class War3Renderer {
           alpha: 0.45 + fillRatio * 0.35,
           additive: true,
         });
+      } else if (t.kind === 'enemy_laser') {
+        const lw = t.width || 54;
+        if (t.timer > 0.22) {
+          const chargeRatio = 1 - Math.max(0, (t.timer - 0.22) / Math.max(0.01, t.maxTimer - 0.22));
+          this.drawStretchedBeam(
+            ctx,
+            IconAtlas.getSprite('fx_aim_line_cancel'),
+            t.x,
+            t.y,
+            endX,
+            endY,
+            lw * 1.18,
+            0.48 + chargeRatio * 0.38,
+            true
+          );
+          this.drawStretchedBeam(
+            ctx,
+            IconAtlas.getSprite('fx_aim_line_cancel'),
+            t.x,
+            t.y,
+            endX,
+            endY,
+            lw * Math.max(0.2, chargeRatio * 0.72),
+            0.78,
+            true
+          );
+          this.drawCenteredSprite(ctx, IconAtlas.getSprite('fx_telegraph_danger'), t.x, t.y, 74, 74, {
+            angle: nowSec * 2.2,
+            alpha: 0.78,
+            additive: true,
+          });
+        } else {
+          const beamSprKey = t.color === '#38bdf8' || t.color === '#a855f7' ? 'fx_lightning_arc' : 'fx_beam_holy';
+          this.drawStretchedBeam(
+            ctx,
+            IconAtlas.getSprite(beamSprKey),
+            t.x,
+            t.y,
+            endX,
+            endY,
+            lw * 1.5,
+            0.96,
+            true
+          );
+          this.drawStretchedBeam(
+            ctx,
+            IconAtlas.getSprite('fx_glow_fire'),
+            t.x,
+            t.y,
+            endX,
+            endY,
+            lw * 0.92,
+            0.72,
+            true
+          );
+          this.drawCenteredSprite(ctx, IconAtlas.getSprite('fx_cast_burst'), t.x, t.y, 92, 92, {
+            angle: nowSec * 4,
+            alpha: 0.85,
+            additive: true,
+          });
+        }
       } else if (t.kind === 'blizzard') {
         const diam = t.radius * 2.1;
         this.drawCenteredSprite(ctx, IconAtlas.getSprite('fx_telegraph_frost'), t.x, t.y, diam, diam, {
@@ -295,6 +366,18 @@ export class War3Renderer {
         this.drawCenteredSprite(ctx, IconAtlas.getSprite('fx_holy_ring'), t.x, t.y, diam * 0.88, diam * 0.88, {
           angle: -nowSec * 0.7,
           alpha: 0.36,
+          additive: true,
+        });
+      } else if (t.kind === 'poison_pool') {
+        const diam = t.radius * 2.08;
+        this.drawCenteredSprite(ctx, IconAtlas.getSprite('fx_telegraph_nature'), t.x, t.y, diam, diam, {
+          angle: nowSec * 0.48,
+          alpha: 0.62,
+          additive: true,
+        });
+        this.drawCenteredSprite(ctx, IconAtlas.getSprite('fx_telegraph_danger'), t.x, t.y, diam * 0.96, diam * 0.96, {
+          angle: -nowSec * 0.65,
+          alpha: 0.4,
           additive: true,
         });
       } else {
@@ -853,12 +936,29 @@ export class War3Renderer {
       0.74
     );
 
-    // Boss warning raster aura on floor
+    // Boss warning & Elite Affix raster aura on floor
     if (e.isBoss) {
-      const auraSz = (e.radius + 14) * 2.3 + Math.sin(nowSec * 5) * 6;
+      const enrageScale = e.bossPhase >= 2 ? 1.18 : 1.0;
+      const auraSz = (e.radius + 14) * 2.3 * enrageScale + Math.sin(nowSec * (e.bossPhase >= 2 ? 8 : 5)) * 7;
+      if (e.bossPhase >= 2) {
+        this.drawCenteredSprite(ctx, IconAtlas.getSprite('fx_glow_fire'), e.x, e.y + e.radius * 0.4, auraSz * 1.12, auraSz * 0.68, {
+          angle: -nowSec * 1.6,
+          alpha: 0.45 + Math.sin(nowSec * 9) * 0.14,
+          additive: true,
+        });
+      }
       this.drawCenteredSprite(ctx, IconAtlas.getSprite('fx_boss_aura'), e.x, e.y + e.radius * 0.48, auraSz, auraSz * 0.56, {
-        angle: nowSec * 0.85,
-        alpha: 0.74,
+        angle: nowSec * (e.bossPhase >= 2 ? 1.45 : 0.85),
+        alpha: e.bossPhase >= 2 ? 0.92 : 0.74,
+        additive: true,
+      });
+    } else if (e.affix) {
+      const affixSpr =
+        e.affix === 'armored' ? 'fx_aura_paladin' : e.affix === 'swift' ? 'fx_aura_wind' : 'fx_glow_fire';
+      const affixSz = e.radius * 2.85 + Math.sin(nowSec * 6) * 4;
+      this.drawCenteredSprite(ctx, IconAtlas.getSprite(affixSpr), e.x, e.y + e.radius * 0.42, affixSz, affixSz * 0.62, {
+        angle: nowSec * (e.affix === 'swift' ? 2.1 : 1.1),
+        alpha: 0.68,
         additive: true,
       });
     }
@@ -914,10 +1014,10 @@ export class War3Renderer {
       });
     }
 
-    const barW = e.isBoss ? 98 : e.isMiniBoss ? 56 : 38;
-    const barH = e.isBoss ? 8 : 5;
+    const barW = e.isBoss ? 98 : e.isMiniBoss || e.affix ? 58 : 38;
+    const barH = e.isBoss ? 8 : e.affix ? 6 : 5;
     const barY = e.y - drawSz * 0.55 - 8 - hop;
-    this.drawHpBar(ctx, e.x, barY, barW, barH, e.hp / e.maxHp, e.isBoss ? '#f43f5e' : '#ef4444');
+    this.drawHpBar(ctx, e.x, barY, barW, barH, e.hp / e.maxHp, e.isBoss ? '#f43f5e' : e.affix ? e.accentColor : '#ef4444');
     if (e.shield > 0) {
       const shR = Math.min(1, e.shield / Math.max(1, e.maxHp));
       ctx.fillStyle = 'rgba(125, 211, 252, 0.88)';
@@ -927,14 +1027,15 @@ export class War3Renderer {
       ctx.fillStyle = '#fb923c';
       ctx.fillRect(e.x - barW / 2, barY + barH + 1, barW, 2);
     }
-    if (e.isBoss || e.isMiniBoss) {
-      ctx.fillStyle = '#fef3c7';
+    if (e.isBoss || e.isMiniBoss || e.affix) {
+      ctx.fillStyle = e.isBoss && e.bossPhase >= 2 ? '#fda4af' : e.affix ? e.accentColor : '#fef3c7';
       ctx.strokeStyle = '#000';
       ctx.lineWidth = 2.5;
-      ctx.font = 'bold 11px sans-serif';
+      ctx.font = e.affix && !e.isBoss ? 'bold 10px sans-serif' : 'bold 11px sans-serif';
       ctx.textAlign = 'center';
-      ctx.strokeText(e.name, e.x, barY - 6);
-      ctx.fillText(e.name, e.x, barY - 6);
+      const labelTxt = e.isBoss && e.bossPhase >= 2 ? `⚡${e.name} [狂暴]` : e.name;
+      ctx.strokeText(labelTxt, e.x, barY - 6);
+      ctx.fillText(labelTxt, e.x, barY - 6);
     }
     ctx.restore();
   }
