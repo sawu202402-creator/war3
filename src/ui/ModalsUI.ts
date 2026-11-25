@@ -120,6 +120,7 @@ export class ModalsUI {
   public openSettlement(victory: boolean): void {
     this.activeModal = 'settlement';
     this.settlementVictory = victory;
+    this.engine.paused = false;
     this.render();
   }
 
@@ -828,8 +829,9 @@ export class ModalsUI {
         </div>
       </div>
       <div class="war3-modal-body" style="display:flex;flex-direction:column;gap:12px;text-align:center;">
-        <div style="font-size:15px;color:#fde047;font-weight:800;">
-          坚持波次：第 ${world.wave} 波 ｜ 击杀敌军：${hero.kills} ｜ 总伤害：${hero.damageDealt}
+        <div style="font-size:14.5px;color:#fde047;font-weight:800;line-height:1.6;">
+          坚持波次：第 ${world.wave} 波 ｜ 击杀敌军：${hero.kills} ｜ 最高连斩：${hero.comboPeak}<br/>
+          总伤害：${Math.round(hero.damageDealt)} ｜ 本局获得荣誉：<span style="color:#4ade80;">+${this.engine.lastRunHonor}</span>
         </div>
         <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
           ${

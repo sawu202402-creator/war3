@@ -60,9 +60,11 @@ export class GameEngine {
   public camY = 1700;
   public worldZoom = 1.0;
   public lockedTargetId: number | null = null;
+  public lastRunHonor = 0;
 
   private renderer = new War3Renderer();
   private netSyncTimer = 0;
+  private settlementTriggered = false;
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -102,10 +104,12 @@ export class GameEngine {
     const save = SaveManager.get();
     this.input.rightClickMoveEnabled = save.rightClickMove;
     this.paused = false;
+    this.settlementTriggered = false;
+    this.lastRunHonor = 0;
     const isCoop = Boolean(opts.coopRoster && opts.coopRoster.length > 0);
     const playersCount = isCoop ? opts.coopRoster!.length : 1 + opts.aiSquadCount;
 
-    const baseSanctuaryHp = Math.round(3600 * (1 + save.talents.reviveFast * 0.08) * (1 + (playersCount - 1) * 0.14));
+    const baseSanctuaryHp = Math.round(5000 * (1 + save.talents.reviveFast * 0.08) * (1 + (playersCount - 1) * 0.16));
     const heroes: HeroEntity[] = [];
 
     if (isCoop && opts.coopRoster) {
@@ -165,8 +169,8 @@ export class GameEngine {
       sanctuary: {
         hp: baseSanctuaryHp,
         maxHp: baseSanctuaryHp,
-        armor: 7,
-        hpRegen: 3.0,
+        armor: 11,
+        hpRegen: 4.5,
         shield: 0,
         level: 1,
         invulnTimer: 0,
@@ -353,6 +357,7 @@ export class GameEngine {
     this.world.endlessMode = true;
     this.world.ended = false;
     this.world.victory = false;
+    this.settlementTriggered = false;
     this.world.waveState = 'prep';
     this.world.wavePrepTimer = 14;
     this.world.bannerText = '♾️ 已进入【无尽守卫模式】！每 5 波魔神再临，冲击极限排行榜！';
@@ -372,7 +377,9 @@ export class GameEngine {
     if (world.sanctuary.invulnTimer > 0) world.sanctuary.invulnTimer -= dt;
     if (world.sanctuary.invulnCd > 0) world.sanctuary.invulnCd -= dt;
     if (world.sanctuary.underAttackFlash > 0) world.sanctuary.underAttackFlash -= dt;
-    world.sanctuary.hp = Math.min(world.sanctuary.maxHp, world.sanctuary.hp + world.sanctuary.hpRegen * dt);
+    if (world.sanctuary.hp > 0) {
+      world.sanctuary.hp = Math.min(world.sanctuary.maxHp, world.sanctuary.hp + world.sanctuary.hpRegen * dt);
+    }
 
     // Update heroes cooldowns, buffs, passive aura, recall, revival
     const isClient = CoopManager.isActiveCoop() && CoopManager.role === 'client';
@@ -396,8 +403,9 @@ export class GameEngine {
       updateTowersAndSummons(world, dt);
       updateBotHeroes(world, dt);
 
-      if (world.sanctuary.hp <= 0 && !world.ended) {
+      if (world.sanctuary.hp <= 0 && !this.settlementTriggered) {
         this.finishMatch(false);
+        return;
       }
     }
 
@@ -924,7 +932,8 @@ export class GameEngine {
   }
 
   private finishMatch(victory: boolean): void {
-    if (!this.world) return;
+    if (!this.world || this.settlementTriggered) return;
+    this.settlementTriggered = true;
     this.world.victory = victory;
     this.world.ended = true;
     this.world.waveState = 'ended';
@@ -936,6 +945,7 @@ export class GameEngine {
     if (local) {
       const diff = DIFFICULTIES[this.world.difficulty];
       const honor = Math.max(30, Math.round((this.world.wave * 18 + (victory ? 220 : 0) + local.kills * 0.35) * diff.honorMultiplier));
+      this.lastRunHonor = honor;
       const discovered = local.inventory.filter((x): x is string => Boolean(x));
       SaveManager.recordRunResult({
         hero: local.classId,
@@ -947,6 +957,9 @@ export class GameEngine {
         discoveredItems: discovered,
         defeatedBosses: [],
       });
+    }
+    if (CoopManager.isActiveCoop() && CoopManager.role === 'host') {
+      this.broadcastCoopSync();
     }
     this.cbs.onShowSettlement(victory);
   }
@@ -1175,6 +1188,9 @@ export class GameEngine {
       this.world.sanctuary.hp = msg.sancHp;
       this.world.sanctuary.maxHp = msg.sancMaxHp;
       this.world.sanctuary.level = msg.sancLv;
+      if ((msg.waveState === 'ended' || msg.sancHp <= 0) && !this.settlementTriggered) {
+        this.finishMatch(msg.sancHp > 0);
+      }
       for (const hTuple of msg.heroes) {
         const [id, x, y, hp, maxHp, mp, maxMp, lv, gold, crystal, stones, zoneId, dead, facing] = hTuple;
         const h = this.world.heroes.find((xHero) => xHero.id === id);

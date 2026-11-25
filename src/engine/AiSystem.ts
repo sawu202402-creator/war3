@@ -118,9 +118,6 @@ export function updateWaveDirector(
           if (world.wave % 3 === 0) h.crystal += 1;
         }
         if (world.wave === 20 && !world.endlessMode) {
-          world.victory = true;
-          world.ended = true;
-          world.waveState = 'ended';
           onStandardVictory();
           return;
         }
@@ -136,10 +133,11 @@ export function updateWaveDirector(
   }
 }
 
-export function applyDamageToSanctuary(world: GameWorldState, rawDmg: number): void {
+export function applyDamageToSanctuary(world: GameWorldState, rawDmg: number, isSiege = false): void {
   if (world.ended || world.sanctuary.invulnTimer > 0) return;
   const armorMult = 100 / (100 + world.sanctuary.armor * 3);
-  const dmg = Math.max(1, Math.round(rawDmg * armorMult));
+  const fortifiedMult = isSiege ? 1.0 : 0.72;
+  const dmg = Math.max(1, Math.round(rawDmg * armorMult * fortifiedMult));
 
   if (world.sanctuary.shield > 0) {
     const ab = Math.min(world.sanctuary.shield, dmg);
@@ -154,9 +152,6 @@ export function applyDamageToSanctuary(world: GameWorldState, rawDmg: number): v
 
   if (world.sanctuary.hp <= 0) {
     world.sanctuary.hp = 0;
-    world.victory = false;
-    world.ended = true;
-    world.waveState = 'ended';
   }
 }
 
@@ -295,7 +290,7 @@ export function updateEnemies(world: GameWorldState, dt: number): void {
         world.vfx.push({ kind: 'explosion', x: e.x, y: e.y, radius: 110, color: '#f97316', life: 0.4, maxLife: 0.4 });
         if (targetHero) applyDamageToHero(world, targetHero, e.dmg, e);
         if (targetSummon) targetSummon.hp -= e.dmg;
-        if (targetAthena) applyDamageToSanctuary(world, e.dmg * 1.15);
+        if (targetAthena) applyDamageToSanctuary(world, e.dmg * 1.15, true);
         world.enemies.splice(i, 1);
         continue;
       }
@@ -316,6 +311,7 @@ export function updateEnemies(world: GameWorldState, dt: number): void {
             radius: 7,
             damage: e.dmg,
             isMagic: e.kind.includes('mage'),
+            isSiege: Boolean(e.preferAthena || e.isBoss),
             color: e.accentColor,
             pierceLeft: 0,
             hitIds: [],
@@ -325,7 +321,7 @@ export function updateEnemies(world: GameWorldState, dt: number): void {
         } else {
           if (targetHero) applyDamageToHero(world, targetHero, e.dmg, e);
           else if (targetSummon) targetSummon.hp -= e.dmg;
-          else if (targetAthena) applyDamageToSanctuary(world, e.dmg);
+          else if (targetAthena) applyDamageToSanctuary(world, e.dmg, Boolean(e.preferAthena || e.isBoss));
         }
       }
     } else if (dist > 6) {
@@ -486,7 +482,7 @@ export function updateTelegraphsAndProjectiles(world: GameWorldState, dt: number
 
     if (p.fromEnemy) {
       if (p.targetAthena && p.zoneId === 'sanctuary' && Math.hypot(p.x - ATHENA_POS.x, p.y - ATHENA_POS.y) <= ATHENA_POS.radius + p.radius) {
-        applyDamageToSanctuary(world, p.damage);
+        applyDamageToSanctuary(world, p.damage, Boolean(p.isSiege));
         world.projectiles.splice(i, 1);
         continue;
       }
@@ -575,7 +571,7 @@ export function updateTelegraphsAndProjectiles(world: GameWorldState, dt: number
           }
         }
         if (t.zoneId === 'sanctuary' && Math.hypot(ATHENA_POS.x - t.x, ATHENA_POS.y - t.y) <= t.radius + ATHENA_POS.radius) {
-          applyDamageToSanctuary(world, t.damage * 0.7);
+          applyDamageToSanctuary(world, t.damage * 0.7, true);
         }
         world.telegraphs.splice(i, 1);
         continue;

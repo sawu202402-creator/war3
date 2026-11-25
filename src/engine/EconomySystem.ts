@@ -860,10 +860,10 @@ export function upgradeSanctuary(world: GameWorldState, hero: HeroEntity): boole
   hero.gold -= goldCost;
   hero.crystal -= crysCost;
   world.sanctuary.level += 1;
-  world.sanctuary.maxHp += 1400;
-  world.sanctuary.hp = Math.min(world.sanctuary.maxHp, world.sanctuary.hp + 1600);
+  world.sanctuary.maxHp += 1800;
+  world.sanctuary.hp = Math.min(world.sanctuary.maxHp, world.sanctuary.hp + 2000);
   world.sanctuary.armor += 4;
-  world.sanctuary.hpRegen += 8;
+  world.sanctuary.hpRegen += 9;
   if (hero.isLocal) SoundFX.playHolyChime();
   world.bannerText = `🏰 ${hero.callsign} 升级了圣殿（Lv.${world.sanctuary.level}）：血量/护甲/回血提升！`;
   world.bannerColor = '#fde047';

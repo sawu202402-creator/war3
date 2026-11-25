@@ -270,6 +270,7 @@ export interface Projectile {
   burnDps?: number;
   aoeRadius?: number;
   canTriggerOrb?: boolean;
+  isSiege?: boolean;
   targetAthena?: boolean;
 }
 
