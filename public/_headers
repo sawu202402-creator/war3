@@ -1,0 +1,14 @@
+/*.html
+  Cache-Control: public, max-age=0, must-revalidate
+
+/sw.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/manifest.json
+  Cache-Control: public, max-age=0, must-revalidate
+
+/assets/*.png
+  Cache-Control: public, max-age=604800, stale-while-revalidate=86400
+
+/assets/*.jpg
+  Cache-Control: public, max-age=604800, stale-while-revalidate=86400

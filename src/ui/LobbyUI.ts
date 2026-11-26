@@ -3,6 +3,7 @@ import { DIFFICULTIES, HERO_CLASSES, TALENT_TRACKS, getHeroClassDef } from '../d
 import { ITEMS, RARITY_META, SET_BONUSES, getItemDef } from '../data/items';
 import { ENEMY_ARCHETYPES } from '../data/waves';
 import { IconAtlas } from '../engine/IconAtlas';
+import { PwaInstallManager } from '../meta/PwaInstallManager';
 import { DAILY_CHECKIN_REWARDS, DAILY_MISSIONS, SaveManager } from '../meta/SaveManager';
 import { CoopManager } from '../net/CoopManager';
 import { PublicRoomAd } from '../net/CoopProtocol';
@@ -127,6 +128,140 @@ export class LobbyUI {
     }
   }
 
+  public syncInstallShortcutUi(): void {
+    const btn = this.root.querySelector('#btn-hub-install') as HTMLButtonElement | null;
+    if (!PwaInstallManager.canShowHomeScreenShortcut()) {
+      if (btn) btn.style.display = 'none';
+      this.root.querySelector('#install-guide-overlay')?.remove();
+      return;
+    }
+    const overlay = this.root.querySelector('#install-guide-overlay');
+    if (
+      overlay &&
+      PwaInstallManager.hasNativeInstallPrompt() &&
+      !overlay.querySelector('#btn-install-native')
+    ) {
+      this.openInstallAppGuide();
+    }
+  }
+
+  private openInstallAppGuide(): void {
+    const backdrop = this.root.querySelector('.lobby-backdrop') as HTMLElement | null;
+    if (!backdrop) return;
+    backdrop.querySelector('#install-guide-overlay')?.remove();
+
+    const plat = PwaInstallManager.getInstallGuidePlatform();
+    const modalTitle = plat === 'desktop' ? '📲 添加到电脑桌面' : '📲 添加到手机桌面';
+    const step1 =
+      plat === 'wechat'
+        ? '① 点击微信右上角 <strong>【 ··· 】</strong> 菜单'
+        : plat === 'ios'
+          ? '① 点击 Safari 浏览器底部/顶部的 <strong>【分享 📤】</strong> 按钮'
+          : plat === 'android'
+            ? '① Chrome 请点右上角 <strong>【 ⋮ 】→【添加到主屏幕】→ 选【创建快捷方式】</strong>（国内网络点“安装”会卡谷歌服务导致找不到图标，选“创建快捷方式”本地秒出！）'
+            : '① 点击浏览器地址栏右侧的 <strong>【安装应用 ⊕】</strong> 图标';
+    const step2 =
+      plat === 'wechat'
+        ? '② 安卓可直接点 <strong>【添加到桌面】</strong>；苹果请点 <strong>【在默认浏览器打开】→ 分享 📤 → 添加到主屏幕</strong>'
+        : plat === 'ios'
+          ? '② 在弹出菜单向下滑，点击 <strong>【添加到主屏幕 ➕】</strong> 即可生成桌面图标'
+          : plat === 'android'
+            ? '② 小米/华为/OPPO/vivo 请确认开启 <strong>系统设置 → 应用管理 → Chrome → 权限 →【桌面快捷方式】</strong>；或点下方复制网址去<strong>手机自带浏览器</strong>添加'
+            : '② 或点击浏览器右上角 <strong>【 ⋮ 】→【安装 圣殿守卫战】</strong>';
+
+    const overlay = document.createElement('div');
+    overlay.id = 'install-guide-overlay';
+    overlay.className = 'install-guide-overlay';
+    overlay.innerHTML = `
+      <div class="install-guide-card war3-stone-panel">
+        <div class="install-guide-top">
+          <div class="install-icon-preview">
+            <img src="./assets/app_icon_ui.png" width="56" height="56" alt="圣殿守卫战" />
+            <span>圣殿守卫战</span>
+          </div>
+          <div class="install-guide-head">
+            <span class="install-badge-pill">全屏无地址栏 · 桌面一键秒开</span>
+            <h3>${modalTitle}</h3>
+            <p>生成专属游戏图标，下次桌面一键秒开、自动隐藏浏览器地址栏全屏畅玩！</p>
+          </div>
+        </div>
+        <div class="install-steps-box">
+          <div class="install-step-item">${step1}</div>
+          <div class="install-step-item">${step2}</div>
+        </div>
+        <div class="install-guide-actions">
+          ${PwaInstallManager.hasNativeInstallPrompt() ? `<button class="war3-btn war3-btn-gold" id="btn-install-native" type="button">⚡ 系统直接安装</button>` : ''}
+          <button class="war3-btn war3-btn-blue" id="btn-install-copy-url" type="button">📋 复制游戏网址</button>
+          <button class="war3-btn war3-btn-green" id="btn-install-close" type="button">我知道了</button>
+        </div>
+      </div>
+    `;
+
+    const openedAt = performance.now();
+    backdrop.appendChild(overlay);
+
+    overlay.onclick = (e) => {
+      if (e.target === overlay && performance.now() - openedAt > 380) {
+        overlay.remove();
+      }
+    };
+
+    const closeBtn = overlay.querySelector('#btn-install-close') as HTMLButtonElement | null;
+    if (closeBtn) {
+      closeBtn.onclick = () => overlay.remove();
+    }
+
+    const nativeBtn = overlay.querySelector('#btn-install-native') as HTMLButtonElement | null;
+    if (nativeBtn) {
+      nativeBtn.onclick = async () => {
+        const out = await PwaInstallManager.triggerNativeInstallPrompt();
+        if (out === 'accepted') {
+          SoundFX.playEventFanfare();
+          const hubBtn = this.root.querySelector('#btn-hub-install') as HTMLButtonElement | null;
+          if (hubBtn) hubBtn.style.display = 'none';
+          overlay.remove();
+        }
+      };
+    }
+
+    const copyUrlBtn = overlay.querySelector('#btn-install-copy-url') as HTMLButtonElement | null;
+    if (copyUrlBtn) {
+      copyUrlBtn.onclick = async () => {
+        const cleanUrl = `${window.location.origin}${window.location.pathname}`;
+        let copied = false;
+        try {
+          if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(cleanUrl);
+            copied = true;
+          }
+        } catch {
+          copied = false;
+        }
+        if (!copied) {
+          try {
+            const ta = document.createElement('textarea');
+            ta.value = cleanUrl;
+            ta.setAttribute('readonly', '');
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            copied = document.execCommand('copy');
+            ta.remove();
+          } catch {
+            copied = false;
+          }
+        }
+        if (copied) {
+          SoundFX.playGold();
+          copyUrlBtn.textContent = '✅ 网址已复制，可粘贴到浏览器打开！';
+        } else {
+          copyUrlBtn.textContent = cleanUrl;
+        }
+      };
+    }
+  }
+
   public setTab(tab: LobbyTab): void {
     this.tab = tab;
     if (tab === 'coop') {
@@ -185,6 +320,11 @@ export class LobbyUI {
             <button class="war3-btn" id="btn-bgm-toggle" style="padding:5px 9px;font-size:11px">
               ${SoundFX.isBgmMuted() ? '音乐: 关' : '音乐: 开'}
             </button>
+            ${
+              PwaInstallManager.canShowHomeScreenShortcut()
+                ? `<button class="hub-install-btn" id="btn-hub-install" type="button" title="添加到桌面全屏畅玩"><img src="./assets/app_icon_ui.png" width="18" height="18" alt="" /><span>添加桌面</span></button>`
+                : ''
+            }
           </div>
         </div>
 
@@ -866,6 +1006,23 @@ export class LobbyUI {
       btnBgm.onclick = () => {
         SoundFX.setBgmMuted(!SoundFX.isBgmMuted());
         this.render();
+      };
+    }
+
+    const btnInstall = this.root.querySelector('#btn-hub-install') as HTMLButtonElement | null;
+    if (btnInstall) {
+      btnInstall.onclick = async () => {
+        const plat = PwaInstallManager.getInstallGuidePlatform();
+        if (plat !== 'android' && PwaInstallManager.hasNativeInstallPrompt()) {
+          const outcome = await PwaInstallManager.triggerNativeInstallPrompt();
+          if (outcome === 'accepted') {
+            SoundFX.playEventFanfare();
+            btnInstall.style.display = 'none';
+            return;
+          }
+          if (outcome === 'dismissed') return;
+        }
+        this.openInstallAppGuide();
       };
     }
 

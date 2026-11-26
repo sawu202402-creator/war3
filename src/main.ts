@@ -3,6 +3,7 @@ import { SoundFX } from './audio/SoundFX';
 import { GameEngine } from './engine/GameEngine';
 import { IconAtlas } from './engine/IconAtlas';
 import { InputManager } from './engine/InputManager';
+import { PwaInstallManager } from './meta/PwaInstallManager';
 import { SaveManager } from './meta/SaveManager';
 import { CoopManager } from './net/CoopManager';
 import { HudUI } from './ui/HudUI';
@@ -11,6 +12,7 @@ import { ModalsUI } from './ui/ModalsUI';
 
 async function bootstrap() {
   SaveManager.load();
+  PwaInstallManager.init();
 
   const gameRoot = document.getElementById('game-root') as HTMLElement;
   const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
@@ -145,6 +147,10 @@ async function bootstrap() {
       onToggleFullscreen: toggleFullscreenLandscape,
     }
   );
+
+  PwaInstallManager.onStateChange(() => {
+    if (!inMatch) lobby.syncInstallShortcutUi();
+  });
 
   CoopManager.bindUI(
     () => {
