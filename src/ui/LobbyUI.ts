@@ -5,9 +5,11 @@ import { ENEMY_ARCHETYPES } from '../data/waves';
 import { IconAtlas } from '../engine/IconAtlas';
 import { DAILY_CHECKIN_REWARDS, DAILY_MISSIONS, SaveManager } from '../meta/SaveManager';
 import { CoopManager } from '../net/CoopManager';
+import { PublicRoomAd } from '../net/CoopProtocol';
 import { DifficultyLevel, HeroClassDef, HeroClassId, HudMode } from '../types';
 
 type LobbyTab = 'solo' | 'coop' | 'talents' | 'codex' | 'daily';
+type HallFilter = 'all' | 'waiting' | 'ingame';
 
 export class LobbyUI {
   private tab: LobbyTab = 'solo';
@@ -15,6 +17,11 @@ export class LobbyUI {
   private selectedCodexItemId = 'myth_frostmourne';
   private joinCodeInput = '';
   private copyMsg = '';
+  private hallFilter: HallFilter = 'all';
+  private roomTitleDraft = '';
+  private hostTitleDraft = '';
+  private chatInputDraft = '';
+  private hallStatusHint = '每 3 秒自动刷新可加入房';
 
   constructor(
     private root: HTMLElement,
@@ -25,6 +32,100 @@ export class LobbyUI {
       onToggleFullscreen?: () => void;
     }
   ) {}
+
+  private escapeHtml(raw: string): string {
+    return (raw || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  private filterPublicRooms(rooms: PublicRoomAd[]): PublicRoomAd[] {
+    if (this.hallFilter === 'waiting') {
+      return rooms.filter((r) => !r.inGame && r.memberCount < r.maxMembers);
+    }
+    if (this.hallFilter === 'ingame') {
+      return rooms.filter((r) => r.inGame);
+    }
+    return rooms;
+  }
+
+  private renderPublicRoomsListHtml(rooms: PublicRoomAd[]): string {
+    const filtered = this.filterPublicRooms(rooms);
+    if (rooms.length === 0) {
+      return `<div class="coop-empty-slot">暂无公开房间，可点击上方【一键快速匹配】或创建自己的公开战局</div>`;
+    }
+    if (filtered.length === 0) {
+      return `<div class="coop-empty-slot">当前筛选下暂无房间（共有 ${rooms.length} 个房间在线，可切换“全部”查看）</div>`;
+    }
+    return filtered
+      .map((r) => {
+        const heroes = (r.memberHeroes && r.memberHeroes.length > 0 ? r.memberHeroes : r.hostHero ? [r.hostHero] : []).slice(0, 4);
+        const title = this.escapeHtml(r.roomTitle || `${r.hostName}的战局`);
+        const host = this.escapeHtml(r.hostName);
+        const code = this.escapeHtml(r.roomCode);
+        const full = r.memberCount >= r.maxMembers;
+        const statusText = r.inGame ? `第 ${r.wave} 波战斗中` : '等候发车';
+        const statusColor = r.inGame ? '#fbbf24' : '#4ade80';
+        return `
+                  <div class="coop-public-row">
+                    <div style="display:flex;flex-direction:column;gap:4px;min-width:0;flex:1;">
+                      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                        <span style="font-weight:800;color:#fde047;">[${code}]</span>
+                        <strong style="color:#f8fafc;font-size:13px;">${title}</strong>
+                        <span style="font-size:11px;padding:1px 6px;border-radius:4px;background:rgba(234,179,8,0.18);border:1px solid rgba(250,204,21,0.45);color:#fef08a;font-weight:700;">N${r.difficulty}</span>
+                        <span style="font-size:11px;color:${statusColor};font-weight:700;">${statusText}</span>
+                      </div>
+                      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                        <span style="font-size:11.5px;color:#cbd5e1;">房主：${host}</span>
+                        ${
+                          heroes.length > 0
+                            ? `<span class="coop-hall-heroes">${heroes
+                                .map((hid) => `<img class="coop-hall-hero-mini" src="${IconAtlas.getDataUrl(`hero_${hid}`)}" alt="" title="${this.escapeHtml(getHeroClassDef(hid).name)}" />`)
+                                .join('')}</span>`
+                            : ''
+                        }
+                      </div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+                      <span style="font-size:12px;color:${full ? '#f87171' : '#4ade80'};font-weight:800;">${r.memberCount}/${r.maxMembers}人</span>
+                      <button class="war3-btn ${full ? '' : r.inGame ? 'war3-btn-gold' : 'war3-btn-blue'}" data-join-public="${code}" ${full ? 'disabled' : ''} style="padding:5px 12px;font-size:12px;">
+                        ${full ? '已满员' : r.inGame ? '战局空降' : '加入房间'}
+                      </button>
+                    </div>
+                  </div>`;
+      })
+      .join('');
+  }
+
+  private bindPublicJoinButtons(): void {
+    this.root.querySelectorAll('[data-join-public]').forEach((el) => {
+      const btn = el as HTMLButtonElement;
+      if (btn.disabled) return;
+      btn.onclick = () => CoopManager.joinRoomByCode(btn.dataset.joinPublic!);
+    });
+  }
+
+  public refreshDirectoryDom(): void {
+    const rooms = CoopManager.getPublicRooms();
+    const badge = this.root.querySelector('#coop-online-badge') as HTMLElement | null;
+    if (badge) {
+      badge.textContent = rooms.length > 0 ? String(rooms.length) : '';
+      badge.style.display = rooms.length > 0 ? 'inline-flex' : 'none';
+    }
+    if (this.tab !== 'coop' || CoopManager.lobby) return;
+    const countEl = this.root.querySelector('#coop-hall-count') as HTMLElement | null;
+    if (countEl) {
+      countEl.textContent = `${rooms.length} 房间在线`;
+    }
+    const listEl = this.root.querySelector('#coop-hall-list') as HTMLElement | null;
+    if (listEl) {
+      listEl.innerHTML = this.renderPublicRoomsListHtml(rooms);
+      this.bindPublicJoinButtons();
+    }
+  }
 
   public setTab(tab: LobbyTab): void {
     this.tab = tab;
@@ -94,7 +195,8 @@ export class LobbyUI {
           </button>
           <button class="nav-tab ${this.tab === 'coop' ? 'active' : ''}" data-tab="coop">
             <img src="${IconAtlas.getDataUrl('ui_ico_coop')}" alt="" />
-            <span>1–4人联机</span>
+            <span>联机大厅</span>
+            <span class="nav-online-pill" id="coop-online-badge" style="display:${CoopManager.getPublicRooms().length > 0 ? 'inline-flex' : 'none'};">${CoopManager.getPublicRooms().length > 0 ? CoopManager.getPublicRooms().length : ''}</span>
           </button>
           <button class="nav-tab ${this.tab === 'talents' ? 'active' : ''}" data-tab="talents">
             <img src="${IconAtlas.getDataUrl('ui_ico_talent')}" alt="" />
@@ -311,6 +413,18 @@ export class LobbyUI {
             <div class="war3-card war3-stone-panel" style="display:flex;flex-direction:column;gap:8px;">
               <strong style="color:#fde047;font-size:15px;">快速开黑 / 创建守城房间</strong>
               <p style="margin:0;font-size:12px;color:#94a3b8;">支持 1–4 人协防，Boss 材料全员独立掉落，队友断线由 AI 自动托管守城。</p>
+              <div class="coop-diff-pills">
+                <span style="font-size:12px;color:#cbd5e1;font-weight:700;align-self:center;">建房难度:</span>
+                ${([1, 2, 3, 4, 5] as DifficultyLevel[])
+                  .map(
+                    (d) =>
+                      `<button class="coop-pill-btn ${this.selectedDifficulty === d ? 'diff-active' : ''}" data-pre-diff="${d}">N${d}</button>`
+                  )
+                  .join('')}
+              </div>
+              <div style="margin-bottom:8px;">
+                <input class="war3-input" id="inp-room-title" maxlength="20" value="${this.escapeHtml(this.roomTitleDraft)}" placeholder="自定义房间标题（如：N2圣殿速刷，留空自动命名）" style="width:100%;" />
+              </div>
               <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button class="war3-btn war3-btn-green" id="btn-quick-match" style="flex:1;min-width:130px;">⚡ 一键快速匹配</button>
                 <button class="war3-btn war3-btn-gold" id="btn-create-room" style="flex:1;min-width:140px;">创建公开房间 (N${this.selectedDifficulty})</button>
@@ -325,30 +439,19 @@ export class LobbyUI {
 
           <div class="war3-card war3-stone-panel">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-              <strong style="color:#4ade80;font-size:14px;">🌐 公开联机大厅 (${publicRooms.length} 房间在线)</strong>
-              <span style="font-size:11px;color:#94a3b8;">每 3 秒自动刷新可加入房</span>
+              <strong style="color:#4ade80;font-size:14px;">🌐 公开联机大厅 (<span id="coop-hall-count">${publicRooms.length} 房间在线</span>)</strong>
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <span id="coop-hall-sync-hint" style="font-size:11px;color:#94a3b8;">${this.escapeHtml(this.hallStatusHint)}</span>
+                <button class="coop-pill-btn" id="btn-refresh-hall">🔄 刷新大厅</button>
+              </div>
             </div>
-            <div class="coop-public-list">
-              ${
-                publicRooms.length === 0
-                  ? `<div class="coop-empty-slot">暂无公开房间，可点击上方【一键快速匹配】自动加入或新建公开房</div>`
-                  : publicRooms
-                      .map(
-                        (r) => `
-                  <div class="coop-public-row">
-                    <div>
-                      <span style="font-weight:800;color:#fde047;">[${r.roomCode}]</span>
-                      <span style="color:#f8fafc;font-weight:700;margin-left:6px;">房主 ${r.hostName}</span>
-                      <span style="font-size:11px;color:#38bdf8;margin-left:6px;">难度 N${r.difficulty} · ${r.inGame ? `第 ${r.wave} 波战斗中` : '等候发车'}</span>
-                    </div>
-                    <div style="display:flex;align-items:center;gap:8px;">
-                      <span style="font-size:12px;color:#4ade80;font-weight:800;">${r.memberCount}/${r.maxMembers}</span>
-                      <button class="war3-btn war3-btn-blue" data-join-public="${r.roomCode}" style="padding:5px 12px;font-size:12px;">${r.inGame ? '中途加入' : '加入'}</button>
-                    </div>
-                  </div>`
-                      )
-                      .join('')
-              }
+            <div class="coop-hall-toolbar">
+              <button class="coop-pill-btn ${this.hallFilter === 'all' ? 'active' : ''}" data-hall-filter="all">全部</button>
+              <button class="coop-pill-btn ${this.hallFilter === 'waiting' ? 'active' : ''}" data-hall-filter="waiting">等候发车</button>
+              <button class="coop-pill-btn ${this.hallFilter === 'ingame' ? 'active' : ''}" data-hall-filter="ingame">战局空降</button>
+            </div>
+            <div class="coop-public-list" id="coop-hall-list">
+              ${this.renderPublicRoomsListHtml(publicRooms)}
             </div>
           </div>
         </div>
@@ -362,16 +465,29 @@ export class LobbyUI {
       <div class="lobby-inner-col">
         <div class="war3-card war3-stone-panel card-head-flex">
           <div>
-            <span style="font-size:12px;color:#94a3b8;">房间号：</span>
-            <strong style="font-size:22px;color:#fde047;letter-spacing:3px;">${lobby.roomCode}</strong>
-            <span style="margin-left:10px;font-size:12px;color:#4ade80;">${CoopManager.getNetStatusLabel()}</span>
+            <div>
+              <span style="font-size:12px;color:#94a3b8;">房间：</span>
+              <strong style="font-size:16px;color:#f8fafc;">${this.escapeHtml(lobby.roomTitle || `${(lobby.members.find((m) => m.isHost) || lobby.members[0])?.callsign || '冒险者'}的战局`)}</strong>
+              <span style="margin-left:8px;font-size:12px;color:#94a3b8;">房号</span>
+              <strong style="font-size:18px;color:#fde047;letter-spacing:2px;">${this.escapeHtml(lobby.roomCode)}</strong>
+              <span style="margin-left:8px;font-size:12px;color:#4ade80;">${CoopManager.getNetStatusLabel()}</span>
+            </div>
+            ${
+              isHost
+                ? `
+              <div class="coop-room-title-row">
+                <input class="war3-input" id="inp-host-title" maxlength="20" value="${this.escapeHtml(this.hostTitleDraft || lobby.roomTitle || '')}" placeholder="输入房间标题" style="width:170px;padding:4px 8px;font-size:12px;" />
+                <button class="coop-pill-btn" id="btn-save-title">改房名</button>
+              </div>`
+                : ''
+            }
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             ${isHost ? `<button class="war3-btn ${lobby.isPublic !== false ? 'war3-btn-green' : ''}" id="btn-toggle-public">${lobby.isPublic !== false ? '🌐 公开房间' : '🔒 仅限邀请'}</button>` : ''}
             <button class="war3-btn war3-btn-blue" id="btn-copy-link">复制邀请链接</button>
             <button class="war3-btn war3-btn-red" id="btn-leave-room">离开房间</button>
           </div>
-          ${this.copyMsg ? `<div style="width:100%;font-size:12px;color:#4ade80;">${this.copyMsg}</div>` : ''}
+          ${this.copyMsg ? `<div style="width:100%;font-size:12px;color:#4ade80;">${this.escapeHtml(this.copyMsg)}</div>` : ''}
         </div>
 
         <div class="war3-card war3-stone-panel">
@@ -388,10 +504,15 @@ export class LobbyUI {
                   <div class="coop-member-card" style="border-color:${m.color};">
                     <div style="display:flex;align-items:center;gap:8px;">
                       <img src="${IconAtlas.getDataUrl(`hero_${m.heroClass}`)}" style="width:40px;height:40px;border-radius:6px;border:1.5px solid var(--war3-gold);" alt="" />
-                      <div>
-                        <div style="font-weight:800;font-size:13px;color:${m.color};">${m.callsign} ${m.isHost ? '[房主]' : ''}</div>
+                      <div style="min-width:0;flex:1;">
+                        <div style="font-weight:800;font-size:13px;color:${m.color};">${this.escapeHtml(m.callsign)} ${m.isHost ? '[房主]' : ''}</div>
                         <div style="font-size:11px;color:#cbd5e1;">${hd.name} · ${m.ready ? '已准备' : '未准备'}</div>
                       </div>
+                      ${
+                        isHost && !m.isHost
+                          ? `<button class="coop-pill-btn" data-kick-peer="${this.escapeHtml(m.peerId)}" style="border-color:rgba(248,113,113,0.55);color:#fca5a5;">移出</button>`
+                          : ''
+                      }
                     </div>
                   </div>
                 `;
@@ -422,6 +543,37 @@ export class LobbyUI {
               `
               : `<button class="war3-btn ${me?.ready ? 'war3-btn-green' : 'war3-btn-blue'}" id="btn-toggle-ready">${me?.ready ? '已准备（等待房主开局）' : '点击准备'}</button>`
           }
+        </div>
+
+        <div class="war3-card war3-stone-panel coop-chat-box">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">
+            <strong style="color:#fde68a;font-size:13px;">💬 小队频道与快捷战术语</strong>
+            <div class="coop-quick-phrases">
+              ${['准备开局', '等一会', '换个输出', '需要辅助', '冲高难度!']
+                .map((p) => `<button class="coop-pill-btn" data-quick-chat="${p}">${p}</button>`)
+                .join('')}
+            </div>
+          </div>
+          <div class="coop-chat-log" id="coop-chat-log">
+            ${
+              CoopManager.roomChatLog.length === 0
+                ? `<div style="font-size:11.5px;color:#64748b;">小队频道已就绪，点击快捷短语或输入消息沟通阵容…</div>`
+                : CoopManager.roomChatLog
+                    .map(
+                      (c) => `
+                <div class="coop-chat-line ${c.system ? 'sys' : ''}">
+                  ${c.heroClass ? `<img src="${IconAtlas.getDataUrl(`hero_${c.heroClass}`)}" alt="" />` : ''}
+                  <strong style="color:${c.system ? '#fbbf24' : '#fde047'};">${this.escapeHtml(c.callsign)}:</strong>
+                  <span>${this.escapeHtml(c.text)}</span>
+                </div>`
+                    )
+                    .join('')
+            }
+          </div>
+          <div style="display:flex;gap:6px;">
+            <input class="war3-input" id="inp-room-chat" maxlength="60" value="${this.escapeHtml(this.chatInputDraft)}" placeholder="输入小队消息，按回车发送..." style="flex:1;padding:6px 10px;font-size:12px;" />
+            <button class="war3-btn war3-btn-blue" id="btn-send-chat" style="padding:6px 14px;font-size:12px;">发送</button>
+          </div>
         </div>
       </div>
     `;
@@ -731,17 +883,114 @@ export class LobbyUI {
         this.render();
       };
     }
+    this.root.querySelectorAll('[data-pre-diff]').forEach((el) => {
+      (el as HTMLElement).onclick = () => {
+        this.selectedDifficulty = Number((el as HTMLElement).dataset.preDiff) as DifficultyLevel;
+        this.render();
+      };
+    });
+    const inpRoomTitle = this.root.querySelector('#inp-room-title') as HTMLInputElement | null;
+    if (inpRoomTitle) {
+      inpRoomTitle.oninput = () => {
+        this.roomTitleDraft = inpRoomTitle.value;
+      };
+    }
     const btnQuick = this.root.querySelector('#btn-quick-match') as HTMLButtonElement | null;
     if (btnQuick) {
       btnQuick.onclick = () => CoopManager.quickMatchOrCreate(this.selectedDifficulty);
     }
     const btnCreate = this.root.querySelector('#btn-create-room') as HTMLButtonElement | null;
     if (btnCreate) {
-      btnCreate.onclick = () => CoopManager.createHostRoom(this.selectedDifficulty, true);
+      btnCreate.onclick = () => {
+        this.hostTitleDraft = '';
+        CoopManager.createHostRoom(this.selectedDifficulty, true, this.roomTitleDraft);
+      };
     }
-    this.root.querySelectorAll('[data-join-public]').forEach((el) => {
-      (el as HTMLElement).onclick = () => CoopManager.joinRoomByCode((el as HTMLElement).dataset.joinPublic!);
+    const btnRefreshHall = this.root.querySelector('#btn-refresh-hall') as HTMLButtonElement | null;
+    if (btnRefreshHall) {
+      btnRefreshHall.onclick = () => {
+        CoopManager.refreshPublicRooms();
+        this.hallStatusHint = '已同步广播检索全网房间…';
+        const hintEl = this.root.querySelector('#coop-hall-sync-hint') as HTMLElement | null;
+        if (hintEl) hintEl.textContent = this.hallStatusHint;
+        this.refreshDirectoryDom();
+        window.setTimeout(() => {
+          this.hallStatusHint = '每 3 秒自动刷新可加入房';
+          const h = this.root.querySelector('#coop-hall-sync-hint') as HTMLElement | null;
+          if (h) h.textContent = this.hallStatusHint;
+        }, 1600);
+      };
+    }
+    this.root.querySelectorAll('[data-hall-filter]').forEach((el) => {
+      (el as HTMLElement).onclick = () => {
+        this.hallFilter = (el as HTMLElement).dataset.hallFilter as HallFilter;
+        this.root.querySelectorAll('[data-hall-filter]').forEach((btn) => {
+          btn.classList.toggle('active', (btn as HTMLElement).dataset.hallFilter === this.hallFilter);
+        });
+        this.refreshDirectoryDom();
+      };
     });
+    this.bindPublicJoinButtons();
+    const inpHostTitle = this.root.querySelector('#inp-host-title') as HTMLInputElement | null;
+    if (inpHostTitle) {
+      inpHostTitle.oninput = () => {
+        this.hostTitleDraft = inpHostTitle.value;
+      };
+      inpHostTitle.onkeydown = (ev) => {
+        if (ev.key === 'Enter') {
+          CoopManager.setHostRoomTitle(inpHostTitle.value);
+          this.hostTitleDraft = '';
+        }
+      };
+    }
+    const btnSaveTitle = this.root.querySelector('#btn-save-title') as HTMLButtonElement | null;
+    if (btnSaveTitle && inpHostTitle) {
+      btnSaveTitle.onclick = () => {
+        CoopManager.setHostRoomTitle(inpHostTitle.value);
+        this.hostTitleDraft = '';
+      };
+    }
+    this.root.querySelectorAll('[data-kick-peer]').forEach((el) => {
+      (el as HTMLElement).onclick = () => {
+        const pid = (el as HTMLElement).dataset.kickPeer;
+        if (pid) CoopManager.kickLobbyMember(pid);
+      };
+    });
+    const inpRoomChat = this.root.querySelector('#inp-room-chat') as HTMLInputElement | null;
+    if (inpRoomChat) {
+      inpRoomChat.oninput = () => {
+        this.chatInputDraft = inpRoomChat.value;
+      };
+      inpRoomChat.onkeydown = (ev) => {
+        if (ev.key === 'Enter') {
+          const text = inpRoomChat.value.trim();
+          if (text) {
+            this.chatInputDraft = '';
+            CoopManager.sendRoomChat(text);
+          }
+        }
+      };
+    }
+    const btnSendChat = this.root.querySelector('#btn-send-chat') as HTMLButtonElement | null;
+    if (btnSendChat && inpRoomChat) {
+      btnSendChat.onclick = () => {
+        const text = inpRoomChat.value.trim();
+        if (text) {
+          this.chatInputDraft = '';
+          CoopManager.sendRoomChat(text);
+        }
+      };
+    }
+    this.root.querySelectorAll('[data-quick-chat]').forEach((el) => {
+      (el as HTMLElement).onclick = () => {
+        const text = (el as HTMLElement).dataset.quickChat || '';
+        if (text) CoopManager.sendRoomChat(text);
+      };
+    });
+    const chatLogEl = this.root.querySelector('#coop-chat-log') as HTMLElement | null;
+    if (chatLogEl) {
+      chatLogEl.scrollTop = chatLogEl.scrollHeight;
+    }
     const btnTogglePublic = this.root.querySelector('#btn-toggle-public') as HTMLButtonElement | null;
     if (btnTogglePublic) {
       btnTogglePublic.onclick = () => CoopManager.toggleHostPublicRoom();
@@ -771,7 +1020,11 @@ export class LobbyUI {
     }
     const btnLeave = this.root.querySelector('#btn-leave-room') as HTMLButtonElement | null;
     if (btnLeave) {
-      btnLeave.onclick = () => CoopManager.disconnect();
+      btnLeave.onclick = () => {
+        this.hostTitleDraft = '';
+        this.chatInputDraft = '';
+        CoopManager.disconnect();
+      };
     }
     this.root.querySelectorAll('[data-coop-hero]').forEach((el) => {
       (el as HTMLElement).onclick = () => CoopManager.setMyHeroClass((el as HTMLElement).dataset.coopHero as HeroClassId);

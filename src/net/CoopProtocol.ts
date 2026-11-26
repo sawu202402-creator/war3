@@ -14,6 +14,7 @@ export interface LobbyMember {
 
 export interface LobbyState {
   roomCode: string;
+  roomTitle?: string;
   difficulty: DifficultyLevel;
   isPublic?: boolean;
   matchSeq?: number;
@@ -23,13 +24,26 @@ export interface LobbyState {
 
 export interface PublicRoomAd {
   roomCode: string;
+  roomTitle?: string;
   hostName: string;
+  hostHero?: HeroClassId;
+  memberHeroes?: HeroClassId[];
   difficulty: DifficultyLevel;
   memberCount: number;
   maxMembers: number;
   inGame: boolean;
   wave: number;
   updatedAt: number;
+}
+
+export interface RoomChatEntry {
+  id: string;
+  peerId: string;
+  callsign: string;
+  heroClass?: HeroClassId;
+  text: string;
+  ts: number;
+  system?: boolean;
 }
 
 export interface SquadMvpEntry {
@@ -164,6 +178,8 @@ export type CoopNetMessage =
   | { type: 'join_req'; callsign: string; heroClass: HeroClassId }
   | { type: 'join_ack'; ok: boolean; reason?: string; assignedPeerId?: string; slot?: number; lobby?: LobbyState }
   | { type: 'lobby_state'; lobby: LobbyState }
+  | { type: 'lobby_chat'; entry: RoomChatEntry }
+  | { type: 'room_kick'; targetPeerId: string; reason?: string }
   | { type: 'member_update'; ready: boolean; callsign: string; heroClass: HeroClassId }
   | { type: 'start_game'; lobby: LobbyState; matchSeq?: number }
   | {

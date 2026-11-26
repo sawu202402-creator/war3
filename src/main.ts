@@ -167,9 +167,10 @@ async function bootstrap() {
       hud.mount();
     },
     () => {
-      if (!inMatch && lobby.isCoopTab()) lobby.render();
+      if (!inMatch) lobby.refreshDirectoryDom();
     }
   );
+  CoopManager.ensurePublicDirectoryActive();
 
   const syncViewport = () => {
     if (window.scrollX !== 0 || window.scrollY !== 0) window.scrollTo(0, 0);

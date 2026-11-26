@@ -1,6 +1,6 @@
 import { SaveManager } from '../meta/SaveManager';
 import { DifficultyLevel, HeroClassId } from '../types';
-import { CoopNetMessage, LobbyMember, LobbyState, PublicRoomAd, SQUAD_COLORS } from './CoopProtocol';
+import { CoopNetMessage, LobbyMember, LobbyState, PublicRoomAd, RoomChatEntry, SQUAD_COLORS } from './CoopProtocol';
 import { MqttWsRoomBus, RoomWireEnvelope } from './MqttWsRoomBus';
 
 const ROOM_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -62,6 +62,14 @@ class CoopNetworkManager {
   public lobby: LobbyState | null = null;
   public lastJoinCode = '';
   public rttMs = 0;
+  public roomChatLog: RoomChatEntry[] = [];
+
+  private normalizeRoomTitle(raw?: string, hostName = '冒险者'): string {
+    const clean = (raw || '').replace(/[\r\n\t]+/g, ' ').trim().slice(0, 20);
+    if (clean) return clean;
+    const h = (hostName || '冒险者').trim().slice(0, 10) || '冒险者';
+    return `${h}的战局`;
+  }
   public currentMatchSeq = 0;
 
   private bus: MqttWsRoomBus<BusPayload> | null = null;
@@ -342,11 +350,16 @@ class CoopNetworkManager {
       return;
     }
     const hostMem = this.lobby.members.find((m) => m.isHost) || this.lobby.members[0];
+    const hostName = hostMem?.callsign || SaveManager.get().callsign;
+    const memberHeroes = this.lobby.members.slice(0, 4).map((m) => m.heroClass);
     this.dirBus?.send('*', {
       type: 'dir_announce',
       ad: {
         roomCode: this.lobby.roomCode,
-        hostName: hostMem?.callsign || SaveManager.get().callsign,
+        roomTitle: this.lobby.roomTitle || this.normalizeRoomTitle(undefined, hostName),
+        hostName,
+        hostHero: hostMem?.heroClass || SaveManager.get().selectedHero,
+        memberHeroes,
         difficulty: this.lobby.difficulty,
         memberCount: this.lobby.members.length,
         maxMembers: 4,
@@ -388,6 +401,7 @@ class CoopNetworkManager {
     if (this.role === 'host' && this.lobby) {
       this.dirBus?.send('*', { type: 'dir_close', roomCode: this.lobby.roomCode });
     }
+    this.roomChatLog = [];
     window.clearInterval(this.heartbeatTimer);
     window.clearInterval(this.joinRetryTimer);
     for (const pid of Array.from(this.rtcPeers.keys())) this.closeRtcPeer(pid);
@@ -414,7 +428,7 @@ class CoopNetworkManager {
     this.notifyLobby();
   }
 
-  public createHostRoom(difficulty: DifficultyLevel = 1, isPublic = true): void {
+  public createHostRoom(difficulty: DifficultyLevel = 1, isPublic = true, roomTitle?: string): void {
     this.disconnect();
     this.ensurePublicDirectoryActive();
     this.role = 'host';
@@ -427,6 +441,7 @@ class CoopNetworkManager {
     this.notifyLobby();
 
     const save = SaveManager.get();
+    const resolvedTitle = this.normalizeRoomTitle(roomTitle, save.callsign);
     this.bus = new MqttWsRoomBus<BusPayload>(
       hostId,
       code,
@@ -436,6 +451,7 @@ class CoopNetworkManager {
         this.status = 'ready';
         this.lobby = {
           roomCode: code,
+          roomTitle: resolvedTitle,
           difficulty,
           isPublic,
           matchSeq: this.hostMatchSeq,
@@ -543,6 +559,7 @@ class CoopNetworkManager {
     me.heroClass = heroClass;
     if (this.role === 'host') {
       this.broadcastLobby();
+      this.publishHostDirectoryState();
     } else {
       this.sendToHost({ type: 'member_update', ready: me.ready, callsign: me.callsign, heroClass });
     }
@@ -629,10 +646,86 @@ class CoopNetworkManager {
     this.bus?.send('*', { type: 'lobby_state', lobby: this.lobby });
   }
 
+  public refreshPublicRooms(): void {
+    this.ensurePublicDirectoryActive();
+    this.dirBus?.wakeAndCheckLinks();
+    this.dirBus?.send('*', { type: 'dir_query' });
+    if (this.role === 'host' && this.lobby) {
+      this.publishHostDirectoryState();
+    }
+  }
+
+  public setHostRoomTitle(rawTitle: string): void {
+    if (this.role !== 'host' || !this.lobby) return;
+    const hostMem = this.lobby.members.find((m) => m.isHost) || this.lobby.members[0];
+    this.lobby.roomTitle = this.normalizeRoomTitle(rawTitle, hostMem?.callsign || SaveManager.get().callsign);
+    this.broadcastLobby();
+    this.publishHostDirectoryState();
+    this.notifyLobby();
+  }
+
+  private appendRoomChat(entry: RoomChatEntry): void {
+    if (!entry || !entry.text) return;
+    if (this.roomChatLog.some((x) => x.id === entry.id)) return;
+    this.roomChatLog.push(entry);
+    if (this.roomChatLog.length > 30) {
+      this.roomChatLog.splice(0, this.roomChatLog.length - 30);
+    }
+    this.notifyLobby();
+  }
+
+  public sendRoomChat(rawText: string): void {
+    if (!this.isActiveCoop() || !this.lobby) return;
+    const text = rawText.replace(/[\r\n\t]+/g, ' ').trim().slice(0, 60);
+    if (!text) return;
+    const me = this.lobby.members.find((m) => m.peerId === this.myPeerId);
+    const save = SaveManager.get();
+    const entry: RoomChatEntry = {
+      id: `${this.myPeerId}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+      peerId: this.myPeerId,
+      callsign: me?.callsign || save.callsign,
+      heroClass: me?.heroClass || save.selectedHero,
+      text,
+      ts: Date.now(),
+    };
+    this.appendRoomChat(entry);
+    this.sendGameMessage({ type: 'lobby_chat', entry });
+  }
+
+  public kickLobbyMember(targetPeerId: string): void {
+    if (this.role !== 'host' || !this.lobby || targetPeerId === this.myPeerId) return;
+    const idx = this.lobby.members.findIndex((m) => m.peerId === targetPeerId);
+    if (idx < 0) return;
+    const [removed] = this.lobby.members.splice(idx, 1);
+    const kickMsg: CoopNetMessage = { type: 'room_kick', targetPeerId, reason: '已被房主移出房间' };
+    this.trySendRtc(targetPeerId, kickMsg);
+    this.bus?.send(targetPeerId, kickMsg);
+    this.bus?.send('*', kickMsg);
+    this.closeRtcPeer(targetPeerId);
+    this.clientLastSeen.delete(targetPeerId);
+    this.pendingHostClientPosRaw.delete(targetPeerId);
+    if (this.lobby.inGame) {
+      this.onPeerLeaveCb?.(targetPeerId);
+    }
+    const sysEntry: RoomChatEntry = {
+      id: `sys_kick_${targetPeerId}_${Date.now().toString(36)}`,
+      peerId: 'system',
+      callsign: '系统',
+      text: `${removed.callsign} 已被移出房间`,
+      ts: Date.now(),
+      system: true,
+    };
+    this.appendRoomChat(sysEntry);
+    this.broadcastFromHost({ type: 'lobby_chat', entry: sysEntry });
+    this.broadcastLobby();
+    this.publishHostDirectoryState();
+    this.notifyLobby();
+  }
+
   public broadcastFromHost(msg: CoopNetMessage, excludePeerId?: string): void {
     if (this.role !== 'host' || !this.bus) return;
     if (excludePeerId && this.clientLastSeen.size <= 1 && this.clientLastSeen.has(excludePeerId)) return;
-    if (msg.type === 'lobby_state' || msg.type === 'start_game') {
+    if (msg.type === 'lobby_state' || msg.type === 'start_game' || msg.type === 'lobby_chat' || msg.type === 'room_kick') {
       this.bus.send('*', msg, excludePeerId);
       return;
     }
@@ -742,18 +835,63 @@ class CoopNetworkManager {
     if (msg.type === 'member_update') {
       const mem = this.lobby.members.find((m) => m.peerId === fromId);
       if (mem) {
+        const heroChanged = Boolean(msg.heroClass && mem.heroClass !== msg.heroClass);
+        const nameChanged = Boolean(msg.callsign && mem.callsign !== msg.callsign.slice(0, 12));
         mem.ready = msg.ready;
         if (msg.callsign) mem.callsign = msg.callsign.slice(0, 12);
         if (msg.heroClass) mem.heroClass = msg.heroClass;
         this.broadcastLobby();
+        if (heroChanged || nameChanged) this.publishHostDirectoryState();
         this.notifyLobby();
       }
       return;
     }
 
+    if (this.handleHostLobbyMsg(msg, fromId)) return;
+
     if (this.clientLastSeen.has(fromId)) {
       this.onGameMessageCb?.(msg, fromId);
     }
+  }
+
+  private handleHostLobbyMsg(msg: CoopNetMessage, fromId: string): boolean {
+    if (!this.lobby) return false;
+    if (msg.type === 'lobby_chat') {
+      if (!this.clientLastSeen.has(fromId)) return true;
+      const mem = this.lobby.members.find((m) => m.peerId === fromId);
+      const cleanText = (msg.entry?.text || '').replace(/[\r\n\t]+/g, ' ').trim().slice(0, 60);
+      if (!cleanText) return true;
+      const entry: RoomChatEntry = {
+        id: msg.entry?.id || `${fromId}_${Date.now().toString(36)}`,
+        peerId: fromId,
+        callsign: mem?.callsign || msg.entry?.callsign || '队友',
+        heroClass: mem?.heroClass || msg.entry?.heroClass,
+        text: cleanText,
+        ts: Date.now(),
+      };
+      this.appendRoomChat(entry);
+      this.broadcastFromHost({ type: 'lobby_chat', entry }, fromId);
+      return true;
+    }
+    return false;
+  }
+
+  private handleClientLobbyMsg(msg: CoopNetMessage): boolean {
+    if (msg.type === 'lobby_chat') {
+      this.appendRoomChat(msg.entry);
+      return true;
+    }
+    if (msg.type === 'room_kick') {
+      if (msg.targetPeerId === this.myPeerId) {
+        const reason = msg.reason || '已被房主移出房间';
+        this.disconnect();
+        this.status = 'error';
+        this.errorMsg = reason;
+        this.notifyLobby();
+      }
+      return true;
+    }
+    return false;
   }
 
   private handleClientEnvelope(env: RoomWireEnvelope<BusPayload>): void {
@@ -882,6 +1020,8 @@ class CoopNetworkManager {
         this.acceptClientMatchStart(this.lobby, pktMSeq);
       }
     }
+
+    if (this.handleClientLobbyMsg(msg)) return;
 
     this.onGameMessageCb?.(msg, this.hostPeerId);
   }
@@ -1026,9 +1166,11 @@ class CoopNetworkManager {
         }
         if (this.role === 'host' && this.clientLastSeen.has(peerId)) {
           this.clientLastSeen.set(peerId, now);
+          if (this.handleHostLobbyMsg(msg, peerId)) return;
           this.onGameMessageCb?.(msg, peerId);
         } else if (this.role === 'client') {
           this.hostLastSeen = now;
+          if (this.handleClientLobbyMsg(msg)) return;
           if (msg.type === 'start_game') {
             if (!msg.lobby.members.some((m) => m.peerId === this.myPeerId)) return;
             this.acceptClientMatchStart(msg.lobby, msg.matchSeq || msg.lobby.matchSeq || 1);
@@ -1136,7 +1278,14 @@ class CoopNetworkManager {
   }
 
   private trySendRtc(peerId: string, msg: CoopNetMessage, preSerialized?: string): boolean {
-    if (msg.type === 'lobby_state' || msg.type === 'start_game' || msg.type === 'join_req' || msg.type === 'join_ack') {
+    if (
+      msg.type === 'lobby_state' ||
+      msg.type === 'start_game' ||
+      msg.type === 'join_req' ||
+      msg.type === 'join_ack' ||
+      msg.type === 'lobby_chat' ||
+      msg.type === 'room_kick'
+    ) {
       return false;
     }
     const b = this.rtcPeers.get(peerId);
