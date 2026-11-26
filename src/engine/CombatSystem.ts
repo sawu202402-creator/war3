@@ -54,6 +54,10 @@ export function recalcHeroStats(hero: HeroEntity): void {
     cleave: 0,
     splashRadius: 0,
     orbChainChance: 0,
+    armorPen: 0,
+    pierceBonus: 0,
+    healPower: 0,
+    summonPower: 0,
   };
 
   // Hero Mastery & Sanctuary Talents
@@ -90,6 +94,10 @@ export function recalcHeroStats(hero: HeroEntity): void {
     if (st.attackRange) s.attackRange += st.attackRange;
     if (st.damageReduce) s.damageReduce += st.damageReduce;
     if (st.thorns) s.thorns += st.thorns * mult;
+    if (st.armorPen) s.armorPen = (s.armorPen || 0) + st.armorPen * mult;
+    if (st.pierceBonus) s.pierceBonus = (s.pierceBonus || 0) + st.pierceBonus;
+    if (st.healPower) s.healPower = (s.healPower || 0) + st.healPower * mult;
+    if (st.summonPower) s.summonPower = (s.summonPower || 0) + st.summonPower * mult;
     if (st.cleave) {
       const cleaveMult = item.heroExclusive === hero.classId ? 1 + (hero.exclusiveLevel - 1) * 0.2 : 1;
       s.cleave = (s.cleave || 0) + st.cleave * cleaveMult;
@@ -107,7 +115,7 @@ export function recalcHeroStats(hero: HeroEntity): void {
     }
   }
 
-  // Set bonuses
+  // Set bonuses (supports 3-piece & 4-piece full thresholds + all new weapon-set stats)
   for (const sb of SET_BONUSES) {
     const cnt = setCount.get(sb.id) || 0;
     const applyPart = (part: Partial<StatBlock>) => {
@@ -115,6 +123,9 @@ export function recalcHeroStats(hero: HeroEntity): void {
       if (part.ad) s.ad += part.ad;
       if (part.ap) s.ap += part.ap;
       if (part.armor) s.armor += part.armor;
+      if (part.atkSpeed) s.atkSpeed += part.atkSpeed;
+      if (part.moveSpeed) s.moveSpeed += part.moveSpeed;
+      if (part.attackRange) s.attackRange += part.attackRange;
       if (part.mpRegen) s.mpRegen += part.mpRegen;
       if (part.critChance) s.critChance += part.critChance;
       if (part.critMult) s.critMult += part.critMult;
@@ -122,9 +133,16 @@ export function recalcHeroStats(hero: HeroEntity): void {
       if (part.cdr) s.cdr += part.cdr;
       if (part.damageReduce) s.damageReduce += part.damageReduce;
       if (part.thorns) s.thorns += part.thorns;
+      if (part.armorPen) s.armorPen = (s.armorPen || 0) + part.armorPen;
+      if (part.pierceBonus) s.pierceBonus = (s.pierceBonus || 0) + part.pierceBonus;
+      if (part.healPower) s.healPower = (s.healPower || 0) + part.healPower;
+      if (part.summonPower) s.summonPower = (s.summonPower || 0) + part.summonPower;
+      if (part.splashRadius) s.splashRadius = Math.max(s.splashRadius || 0, part.splashRadius);
+      if (part.orbChainChance) s.orbChainChance = (s.orbChainChance || 0) + part.orbChainChance;
     };
     if (cnt >= 2) applyPart(sb.twoPieceStats);
-    if (cnt >= (sb.id === 'set_aegis' ? 3 : 4)) applyPart(sb.fourPieceStats);
+    const fullNeed = sb.fullPieceCount ?? (sb.id === 'set_aegis' ? 3 : 4);
+    if (cnt >= fullNeed) applyPart(sb.fourPieceStats);
   }
 
   // Awakening branch bonuses
@@ -216,6 +234,10 @@ export function recalcHeroStats(hero: HeroEntity): void {
   s.cleave = Math.min(1.2, Math.max(0, s.cleave || 0));
   s.splashRadius = Math.min(150, Math.max(0, s.splashRadius || 0));
   s.orbChainChance = Math.min(0.75, Math.max(0, s.orbChainChance || 0));
+  s.armorPen = Math.min(0.6, Math.max(0, s.armorPen || 0));
+  s.pierceBonus = Math.min(5, Math.max(0, Math.round(s.pierceBonus || 0)));
+  s.healPower = Math.min(2.2, Math.max(0, s.healPower || 0));
+  s.summonPower = Math.min(2.5, Math.max(0, s.summonPower || 0));
 
   const prevMaxHp = hero.stats?.maxHp || s.maxHp;
   const hpRatio = prevMaxHp > 0 ? hero.hp / prevMaxHp : 1;
@@ -323,7 +345,8 @@ export function applyDamageToEnemy(
   }
 
   if (!opts.trueDamage) {
-    const effArmor = enemy.armorShredTimer > 0 ? Math.max(0, enemy.armor * 0.4) : enemy.armor;
+    const shreddedArmor = enemy.armorShredTimer > 0 ? Math.max(0, enemy.armor * 0.4) : enemy.armor;
+    const effArmor = Math.max(0, shreddedArmor * (1 - (opts.attacker?.stats.armorPen || 0)));
     const armorMult = opts.isMagic ? 100 / (100 + effArmor * 2.5) : 100 / (100 + effArmor * 4);
     dmg *= armorMult;
   }
@@ -654,12 +677,12 @@ export function performBasicAttack(
     const isMagic = hero.classId === 'archmage' || hero.classId === 'priest';
     const spread = 0.16;
     const projAoe = hero.stats.splashRadius || 0;
-    const pierce = hero.hawkeyeTimer > 0 ? (hero.classId === 'ranger' ? 2 : 1) : 0;
+    const pierce = (hero.stats.pierceBonus || 0) + (hero.hawkeyeTimer > 0 ? (hero.classId === 'ranger' ? 2 : 1) : 0);
 
     for (let i = 0; i < arrowCount; i++) {
       const offset = arrowCount === 1 ? 0 : (i - (arrowCount - 1) / 2) * spread;
       const ang = baseAng + offset;
-      const spd = hero.classId === 'ranger' ? 760 : 620;
+      const spd = hero.classId === 'ranger' ? ((hero.stats.pierceBonus || 0) >= 2 ? 820 : 760) : 620;
       const splitMult = i === 0 ? 1 : hero.awakeningBranchId === 'rng_skybow' ? 0.85 : 0.68;
       world.projectiles.push({
         id: world.nextEntityId++,
@@ -781,7 +804,7 @@ export function castHeroSkill(
       return true;
     }
     case 'pal_shield': {
-      const shAmt = skillDmg * (hero.awakeningBranchId === 'pal_fortress' ? 1.45 : 1.0);
+      const shAmt = skillDmg * (hero.awakeningBranchId === 'pal_fortress' ? 1.45 : 1.0) * (1 + (hero.stats.healPower || 0));
       for (const ally of world.heroes) {
         if (!ally.dead && ally.zoneId === hero.zoneId && Math.hypot(ally.x - hero.x, ally.y - hero.y) <= sk.radius) {
           ally.shield += shAmt;
@@ -830,6 +853,7 @@ export function castHeroSkill(
       hero.stunTimer = 0;
       const count = hero.awakeningBranchId === 'bm_phantom' ? 3 : 2;
       const inherit = hero.awakeningBranchId === 'bm_phantom' ? 0.65 : 0.45;
+      const sumBoost = 1 + (hero.stats.summonPower || 0);
       for (let i = 0; i < count; i++) {
         const ang = (Math.PI * 2 * i) / count;
         const p = resolveWorldCollision(hero.zoneId, hero.x + Math.cos(ang) * 55, hero.y + Math.sin(ang) * 55, 18, world.towers, false);
@@ -843,9 +867,9 @@ export function castHeroSkill(
           y: p.y,
           radius: 18,
           facing: hero.facing,
-          hp: hero.stats.maxHp * 0.7,
-          maxHp: hero.stats.maxHp * 0.7,
-          ad: hero.stats.ad * inherit,
+          hp: hero.stats.maxHp * 0.7 * sumBoost,
+          maxHp: hero.stats.maxHp * 0.7 * sumBoost,
+          ad: hero.stats.ad * inherit * sumBoost,
           atkSpeed: hero.stats.atkSpeed,
           attackTimer: 0,
           moveSpeed: hero.stats.moveSpeed,
@@ -1032,7 +1056,7 @@ export function castHeroSkill(
 
     // PRIEST
     case 'pr_holychain': {
-      const healMult = hero.awakeningBranchId === 'pr_lifemaiden' ? 2.0 : 1.0;
+      const healMult = (hero.awakeningBranchId === 'pr_lifemaiden' ? 2.0 : 1.0) * (1 + (hero.stats.healPower || 0));
       const healAmt = (skillDmg * 1.15) * healMult;
       const pts: { x: number; y: number }[] = [{ x: hero.x, y: hero.y }];
       for (const ally of world.heroes) {
@@ -1070,7 +1094,7 @@ export function castHeroSkill(
     case 'pr_treant': {
       const count = hero.awakeningBranchId === 'pr_druid' ? 3 : 2;
       const dur = hero.awakeningBranchId === 'pr_druid' ? 32 : 22;
-      const mult = hero.awakeningBranchId === 'pr_druid' ? 1.65 : 1.0;
+      const mult = (hero.awakeningBranchId === 'pr_druid' ? 1.65 : 1.0) * (1 + (hero.stats.summonPower || 0));
       for (let i = 0; i < count; i++) {
         const ang = (Math.PI * 2 * i) / count;
         const p = resolveWorldCollision(hero.zoneId, targetX + Math.cos(ang) * 44, targetY + Math.sin(ang) * 44, 24, world.towers, false);
@@ -1125,7 +1149,7 @@ export function castHeroSkill(
         maxTimer: 6.0,
         tickTimer: 0.05,
         damage: skillDmg * 0.5,
-        healPerSec: hero.stats.ap * 0.85 + 140,
+        healPerSec: (hero.stats.ap * 0.85 + 140) * (1 + (hero.stats.healPower || 0)),
         slowPct: 0.5,
         color: '#e879f9',
       });
@@ -1190,9 +1214,10 @@ export function castActiveItemSkill(
     addFloatingText(world, hero.x, hero.y - 32, '神行疾步!', '#38bdf8', 14);
     if (hero.isLocal) SoundFX.playTeleport();
   } else if (act.id === 'act_aegis') {
-    hero.shield += hero.stats.maxHp * 0.35;
-    hero.hp = Math.min(hero.stats.maxHp, hero.hp + hero.stats.maxHp * 0.25);
-    world.sanctuary.shield += 1200;
+    const hMult = 1 + (hero.stats.healPower || 0);
+    hero.shield += hero.stats.maxHp * 0.35 * hMult;
+    hero.hp = Math.min(hero.stats.maxHp, hero.hp + hero.stats.maxHp * 0.25 * hMult);
+    world.sanctuary.shield += Math.round(1200 * hMult);
     world.vfx.push({ kind: 'ring', x: hero.x, y: hero.y, radius: 180, color: '#facc15', life: 0.55, maxLife: 0.55 });
     if (hero.isLocal) SoundFX.playHolyChime();
   } else if (act.id === 'act_thunderfury') {
@@ -1240,6 +1265,82 @@ export function castActiveItemSkill(
     }
     world.vfx.push({ kind: 'explosion', x: tx, y: ty, radius: 230, color: '#f43f5e', life: 0.55, maxLife: 0.55 });
     if (hero.isLocal) SoundFX.playCritHit();
+  } else if (act.id === 'act_starbow' || act.id === 'act_windrunner') {
+    const isMythic = act.id === 'act_windrunner';
+    hero.hawkeyeTimer = Math.max(hero.hawkeyeTimer, isMythic ? 5.0 : 4.0);
+    if (isMythic) hero.windbootsTimer = Math.max(hero.windbootsTimer, 5.0);
+    recalcHeroStats(hero);
+    const count = isMythic ? 16 : 9;
+    const arc = isMythic ? Math.PI * 2 : Math.PI * 0.48;
+    const spd = isMythic ? 860 : 820;
+    for (let i = 0; i < count; i++) {
+      const ang = isMythic
+        ? hero.facing + (i / count) * arc
+        : hero.facing + (i / (count - 1) - 0.5) * arc;
+      world.projectiles.push({
+        id: world.nextEntityId++,
+        fromEnemy: false,
+        ownerId: hero.id,
+        zoneId: hero.zoneId,
+        x: hero.x + Math.cos(ang) * 20,
+        y: hero.y + Math.sin(ang) * 20,
+        vx: Math.cos(ang) * spd,
+        vy: Math.sin(ang) * spd,
+        radius: isMythic ? 9 : 8,
+        damage: hero.stats.ad * (isMythic ? 1.45 : 1.15),
+        isMagic: false,
+        color: isMythic ? '#facc15' : '#38bdf8',
+        aoeRadius: isMythic ? 65 : 0,
+        pierceLeft: isMythic ? 8 : 4,
+        canTriggerOrb: true,
+        hitIds: [],
+        life: 0.72,
+        slowPct: isMythic ? 0.45 : 0.35,
+      });
+    }
+    world.vfx.push({ kind: 'ring', x: hero.x, y: hero.y, radius: isMythic ? 180 : 120, color: isMythic ? '#fde047' : '#38bdf8', life: 0.4, maxLife: 0.4 });
+    addFloatingText(world, hero.x, hero.y - 34, isMythic ? '逐星风暴!' : '星陨齐射!', isMythic ? '#fde047' : '#38bdf8', 15);
+    if (hero.isLocal) SoundFX.playBowShot();
+  } else if (act.id === 'act_lifescepter' || act.id === 'act_elune') {
+    const isMythic = act.id === 'act_elune';
+    const hMult = 1 + (hero.stats.healPower || 0);
+    const healAmt = (hero.stats.ap * (isMythic ? 1.65 : 1.45) + hero.stats.maxHp * (isMythic ? 0.16 : 0.14)) * hMult;
+    const shAmt = isMythic ? 0 : (hero.stats.ap * 0.9 + 520) * hMult;
+    for (const ally of world.heroes) {
+      if (!ally.dead && ally.zoneId === hero.zoneId) {
+        ally.hp = Math.min(ally.stats.maxHp, ally.hp + healAmt);
+        if (shAmt > 0) ally.shield += shAmt;
+        if (isMythic) {
+          ally.warsongTimer = Math.max(ally.warsongTimer, 6.0);
+          recalcHeroStats(ally);
+        }
+        addFloatingText(world, ally.x, ally.y - 28, `+${Math.round(healAmt)}`, '#4ade80', 14);
+      }
+    }
+    if (hero.zoneId === 'sanctuary') {
+      const sHeal = Math.round(healAmt * (isMythic ? 0.75 : 0.65));
+      world.sanctuary.hp = Math.min(world.sanctuary.maxHp, world.sanctuary.hp + sHeal);
+      if (shAmt > 0) world.sanctuary.shield += Math.round(shAmt * 0.8);
+      addFloatingText(world, ATHENA_POS.x, ATHENA_POS.y - 54, `圣殿 +${sHeal}`, '#4ade80', 14);
+    }
+    if (isMythic) {
+      for (const e of world.enemies) {
+        if (e.zoneId === hero.zoneId && e.hp > 0 && Math.hypot(e.x - hero.x, e.y - hero.y) <= 320) {
+          e.stunTimer = Math.max(e.stunTimer, e.isBoss ? 0.6 : 1.2);
+          applyDamageToEnemy(world, e, hero.stats.ap * 2.2 + 520, {
+            attacker: hero,
+            isMagic: true,
+            canCrit: true,
+            onEnemyKilled,
+          });
+        }
+      }
+      world.vfx.push({ kind: 'explosion', x: hero.x, y: hero.y, radius: 320, color: '#e879f9', life: 0.55, maxLife: 0.55 });
+    } else {
+      world.vfx.push({ kind: 'ring', x: hero.x, y: hero.y, radius: 240, color: '#4ade80', life: 0.5, maxLife: 0.5 });
+    }
+    addFloatingText(world, hero.x, hero.y - 44, isMythic ? '月神降临!' : '生命赞歌!', isMythic ? '#e879f9' : '#4ade80', 15);
+    if (hero.isLocal) SoundFX.playHolyChime();
   }
   return true;
 }

@@ -85,6 +85,10 @@ export interface StatBlock {
   cleave?: number; // War3 Cleaving Attack ratio (0 = single-target)
   splashRadius?: number; // War3 Orb/caster AoE splash radius in px (0 = single-target)
   orbChainChance?: number; // War3 Orb of Lightning chain trigger probability (0..0.75)
+  armorPen?: number; // percentage armor penetration (0..0.6)
+  pierceBonus?: number; // extra projectile pierce count on ranged basic attacks (0..5)
+  healPower?: number; // bonus healing & shield multiplier (0..2.2)
+  summonPower?: number; // bonus summon HP & AD multiplier (0..2.5)
 }
 
 export type ItemRarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary' | 'mythic';
@@ -152,6 +156,8 @@ export interface ItemDef {
 export interface SetBonusDef {
   id: string;
   name: string;
+  heroTag?: string;
+  fullPieceCount?: number;
   itemIds: string[];
   twoPieceDesc: string;
   fourPieceDesc: string;

@@ -1,6 +1,6 @@
 import { SoundFX } from '../audio/SoundFX';
 import { DIFFICULTIES, HERO_CLASSES, TALENT_TRACKS, getHeroClassDef } from '../data/heroes';
-import { ITEMS, RARITY_META, getItemDef } from '../data/items';
+import { ITEMS, RARITY_META, SET_BONUSES, getItemDef } from '../data/items';
 import { ENEMY_ARCHETYPES } from '../data/waves';
 import { IconAtlas } from '../engine/IconAtlas';
 import { DAILY_CHECKIN_REWARDS, DAILY_MISSIONS, SaveManager } from '../meta/SaveManager';
@@ -623,6 +623,45 @@ export class LobbyUI {
 
     return `
       <div class="lobby-inner-col">
+        <div class="war3-card war3-stone-panel">
+          <div class="card-title-with-ico">
+            <img src="${IconAtlas.getDataUrl('ui_ico_battle')}" alt="" />
+            <div>
+              <strong>五大职业本命武器套装</strong>
+              <div class="sub-muted">5 位英雄各有 1 套专属 T1→T4 锻造与双分支神兵线（点选件徽可直查合成路线）</div>
+            </div>
+          </div>
+          <div class="codex-sets-grid">
+            ${SET_BONUSES.map(
+              (sb) => `
+              <div class="codex-set-card">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;">
+                  <strong style="color:#fde68a;font-size:13px;">${sb.name}</strong>
+                  ${sb.heroTag ? `<span style="font-size:10.5px;color:#38bdf8;font-weight:700;">${sb.heroTag}</span>` : ''}
+                </div>
+                <div class="codex-set-pieces">
+                  ${sb.itemIds
+                    .map((id) => {
+                      const it = getItemDef(id);
+                      if (!it) return '';
+                      const rm = RARITY_META[it.rarity];
+                      return `
+                        <button class="codex-set-chip" data-codex-item="${it.id}" type="button" style="border-color:${rm.border};color:${rm.color};">
+                          <img src="${IconAtlas.getDataUrl(it.iconKey)}" alt="" />
+                          <span>${it.name}</span>
+                        </button>
+                      `;
+                    })
+                    .join('')}
+                </div>
+                <div style="font-size:11px;color:#cbd5e1;line-height:1.4;">${sb.twoPieceDesc}</div>
+                <div style="font-size:11px;color:#fde047;line-height:1.4;">${sb.fourPieceDesc}</div>
+              </div>
+            `
+            ).join('')}
+          </div>
+        </div>
+
         <div class="war3-card war3-stone-panel">
           <div class="card-title-with-ico">
             <img src="${IconAtlas.getDataUrl('ui_ico_codex')}" alt="" />

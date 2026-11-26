@@ -817,16 +817,22 @@ export function getQuickBuyOptions(world: GameWorldState, hero: HeroEntity): Qui
 
   if (hero.inventory.some((x) => x === null)) {
     const starterOrder =
-      hero.classId === 'archmage' || hero.classId === 'priest'
-        ? ['acc_t1', 'boot_t1', 'arm_t1', 'comp_frost', 'comp_mana']
-        : hero.classId === 'paladin'
-          ? ['arm_t1', 'boot_t1', 'wep_t1', 'comp_pendant', 'comp_thorn']
-          : ['wep_t1', 'boot_t1', 'comp_vamp', 'arm_t1', 'comp_claw'];
+      hero.classId === 'ranger'
+        ? ['bow_t1', 'boot_t1', 'comp_claw', 'comp_crit', 'arm_t1']
+        : hero.classId === 'priest'
+          ? ['sac_t1', 'boot_t1', 'comp_pendant', 'comp_mana', 'arm_t1']
+          : hero.classId === 'archmage'
+            ? ['acc_t1', 'boot_t1', 'arm_t1', 'comp_frost', 'comp_mana']
+            : hero.classId === 'paladin'
+              ? ['arm_t1', 'boot_t1', 'wep_t1', 'comp_pendant', 'comp_thorn']
+              : ['wep_t1', 'boot_t1', 'comp_vamp', 'arm_t1', 'comp_claw'];
     for (const sid of starterOrder) {
       if (countOwnedItem(hero, sid) > 0) continue;
       if (sid === 'wep_t1' && ['wep_t2', 'wep_t3', 'wep_t4'].some((x) => countOwnedItem(hero, x) > 0)) continue;
+      if (sid === 'bow_t1' && ['bow_t2', 'bow_t3', 'bow_t4'].some((x) => countOwnedItem(hero, x) > 0)) continue;
       if (sid === 'arm_t1' && ['arm_t2', 'arm_t3', 'arm_t4'].some((x) => countOwnedItem(hero, x) > 0)) continue;
       if (sid === 'acc_t1' && ['acc_t2', 'acc_t3', 'acc_t4'].some((x) => countOwnedItem(hero, x) > 0)) continue;
+      if (sid === 'sac_t1' && ['sac_t2', 'sac_t3', 'sac_t4'].some((x) => countOwnedItem(hero, x) > 0)) continue;
       if (sid === 'boot_t1' && ['boot_t2', 'boot_t3'].some((x) => countOwnedItem(hero, x) > 0)) continue;
       const item = getItemDef(sid);
       if (!item) continue;

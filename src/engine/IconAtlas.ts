@@ -143,6 +143,8 @@ const CRITICAL_ASSETS: string[] = [
   'item_wep_t1.png',
   'item_arm_t1.png',
   'item_acc_t1.png',
+  'item_bow_t1.png',
+  'item_sac_t1.png',
   'item_boot_t1.png',
   'item_leg_thunderfury.png',
   'item_leg_aegis.png',

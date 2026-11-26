@@ -3,6 +3,7 @@ import { getHeroClassDef } from '../data/heroes';
 import {
   ITEMS,
   RARITY_META,
+  SET_BONUSES,
   getHeroRecommendedRecipeTargets,
   getItemDef,
   getItemsUsingIngredient,
@@ -25,7 +26,9 @@ import { ItemDef, TowerType, ZoneId } from '../types';
 type ShopCategory =
   | 'recommended'
   | 'weapon'
+  | 'bow'
   | 'magic'
+  | 'sanctum'
   | 'armor'
   | 'boots'
   | 'consumables'
@@ -34,9 +37,11 @@ type ShopCategory =
 
 const SHOP_CATEGORIES: { id: ShopCategory; label: string }[] = [
   { id: 'recommended', label: '推荐' },
-  { id: 'weapon', label: '攻击' },
-  { id: 'magic', label: '法术' },
-  { id: 'armor', label: '防御' },
+  { id: 'weapon', label: '狂刃' },
+  { id: 'bow', label: '弓弩' },
+  { id: 'magic', label: '奥法' },
+  { id: 'sanctum', label: '圣谕' },
+  { id: 'armor', label: '圣盾' },
   { id: 'boots', label: '移动' },
   { id: 'consumables', label: '药水' },
   { id: 'books', label: '神书' },
@@ -217,29 +222,64 @@ export class ModalsUI {
           hero.pinnedRecipeId && !recTargets.includes(hero.pinnedRecipeId)
             ? [hero.pinnedRecipeId, ...recTargets]
             : recTargets;
+        const heroStarter =
+          hero.classId === 'ranger'
+            ? 'bow_t1'
+            : hero.classId === 'priest'
+              ? 'sac_t1'
+              : hero.classId === 'archmage'
+                ? 'acc_t1'
+                : hero.classId === 'paladin'
+                  ? 'arm_t1'
+                  : 'wep_t1';
+        const starterList = Array.from(
+          new Set([
+            heroStarter,
+            'boot_t1',
+            'wep_t1',
+            'bow_t1',
+            'acc_t1',
+            'sac_t1',
+            'arm_t1',
+            'pot_hp_l',
+            'pot_mp',
+            'pot_omni',
+            'pot_invuln',
+            'item_ankh',
+          ])
+        );
         return [
           { title: '核心推荐神装（点选右侧可预购 / 查合成树）', items: pick(coreIds) },
-          {
-            title: '常用基础件与消耗品',
-            items: pick(['wep_t1', 'arm_t1', 'acc_t1', 'boot_t1', 'pot_hp_l', 'pot_mp', 'pot_omni', 'pot_invuln', 'item_ankh']),
-          },
+          { title: '本命基础件与消耗品', items: pick(starterList) },
         ];
       }
       case 'weapon':
         return [
-          { title: '基础与攻击散件', items: pick(['wep_t1', 'comp_vamp', 'comp_claw', 'comp_thunder', 'comp_crit']) },
+          { title: '狂刃基础与近战散件（战神套 · 剑圣）', items: pick(['wep_t1', 'comp_vamp', 'comp_claw', 'comp_thunder', 'comp_crit']) },
           { title: '进阶锻造（支持一键补差价升阶）', items: pick(['wep_t2', 'wep_t3', 'wep_t4']) },
           { title: '传说 / 神话神兵', items: pick(['leg_bloodreaver', 'leg_thunderfury', 'myth_frostmourne', 'myth_chaos']) },
         ];
+      case 'bow':
+        return [
+          { title: '穿云基础与远程散件（逐星套 · 游侠）', items: pick(['bow_t1', 'comp_claw', 'comp_thunder', 'comp_crit', 'comp_vamp']) },
+          { title: '弓弩锻造升阶线', items: pick(['bow_t2', 'bow_t3', 'bow_t4']) },
+          { title: '传说 / 神话神弓', items: pick(['leg_starbow', 'leg_shadowcrossbow', 'myth_windrunner']) },
+        ];
       case 'magic':
         return [
-          { title: '基础与法术散件', items: pick(['acc_t1', 'comp_frost', 'comp_flame', 'comp_mana']) },
+          { title: '奥法基础与法术散件（秘法套 · 大法师）', items: pick(['acc_t1', 'comp_frost', 'comp_flame', 'comp_mana']) },
           { title: '进阶锻造（支持一键补差价升阶）', items: pick(['acc_t2', 'acc_t3', 'acc_t4']) },
           { title: '传说 / 神话法器', items: pick(['leg_wintersoul', 'leg_inferno', 'myth_apocalypse']) },
         ];
+      case 'sanctum':
+        return [
+          { title: '圣谕基础与辅助散件（圣谕套 · 祭司）', items: pick(['sac_t1', 'comp_pendant', 'comp_mana', 'comp_frost']) },
+          { title: '牧杖锻造升阶线', items: pick(['sac_t2', 'sac_t3', 'sac_t4']) },
+          { title: '传说 / 神话圣典', items: pick(['leg_lifescepter', 'leg_druidicstaff', 'myth_elune']) },
+        ];
       case 'armor':
         return [
-          { title: '基础与防御散件', items: pick(['arm_t1', 'comp_pendant', 'comp_thorn']) },
+          { title: '重甲基础与防御散件（神盾套 · 骑士）', items: pick(['arm_t1', 'comp_pendant', 'comp_thorn']) },
           { title: '进阶锻造（支持一键补差价升阶）', items: pick(['arm_t2', 'arm_t3', 'arm_t4']) },
           { title: '传说 / 神话重甲', items: pick(['leg_aegis', 'myth_immortal']) },
         ];
@@ -470,6 +510,7 @@ export class ModalsUI {
                    </div>`
                 : ''
             }
+            ${this.renderSetBonusPreviewHtml(hero, it.setId)}
             ${this.renderParentChipsHtml(parents)}
             ${
               allies.length > 0 && !it.heroExclusive
@@ -548,6 +589,7 @@ export class ModalsUI {
             ? `<div class="hok-detail-active">主动【${it.activeSkill.name}】(${it.activeSkill.cooldown}s)：${it.activeSkill.desc}</div>`
             : ''
         }
+        ${this.renderSetBonusPreviewHtml(hero, it.setId)}
         ${this.renderVisualTreeHtml(hero, it)}
         ${this.renderParentChipsHtml(parents)}
       </div>
@@ -562,6 +604,24 @@ export class ModalsUI {
                </button>`
             : ''
         }
+      </div>
+    `;
+  }
+
+  private renderSetBonusPreviewHtml(hero: HeroEntity, setId?: string): string {
+    if (!setId) return '';
+    const sb = SET_BONUSES.find((s) => s.id === setId);
+    if (!sb) return '';
+    const ownedCount = hero.inventory.filter((id) => id && getItemDef(id)?.setId === setId).length;
+    const fullNeed = sb.fullPieceCount ?? 4;
+    return `
+      <div class="hok-set-preview">
+        <div class="hok-set-head">
+          <span>${sb.name} (${ownedCount}/${fullNeed})</span>
+          ${sb.heroTag ? `<span class="hok-set-tag">${sb.heroTag}</span>` : ''}
+        </div>
+        <div class="hok-set-tier ${ownedCount >= 2 ? 'active' : ''}">${sb.twoPieceDesc}</div>
+        <div class="hok-set-tier ${ownedCount >= fullNeed ? 'active' : ''}">${sb.fourPieceDesc}</div>
       </div>
     `;
   }

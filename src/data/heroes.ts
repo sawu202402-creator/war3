@@ -601,7 +601,7 @@ export const HERO_CLASSES: HeroClassDef[] = [
       },
     ],
     exclusiveItemId: 'ex_ranger',
-    recommendedBuild: ['wep_t1', 'wep_t2', 'wep_t3', 'wep_t4', 'leg_thunderfury', 'leg_bloodreaver', 'myth_frostmourne'],
+    recommendedBuild: ['bow_t1', 'bow_t2', 'bow_t3', 'bow_t4', 'leg_starbow', 'leg_shadowcrossbow', 'myth_windrunner'],
   },
   {
     id: 'priest',
@@ -733,7 +733,7 @@ export const HERO_CLASSES: HeroClassDef[] = [
       },
     ],
     exclusiveItemId: 'ex_priest',
-    recommendedBuild: ['acc_t1', 'acc_t2', 'acc_t3', 'acc_t4', 'leg_wintersoul', 'leg_aegis', 'myth_apocalypse'],
+    recommendedBuild: ['sac_t1', 'sac_t2', 'sac_t3', 'sac_t4', 'leg_lifescepter', 'leg_druidicstaff', 'myth_elune'],
   },
 ];
 
