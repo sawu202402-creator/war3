@@ -4,6 +4,7 @@ import {
   ITEMS,
   RARITY_META,
   SET_BONUSES,
+  getHeroHoKEndgameBuild,
   getHeroRecommendedRecipeTargets,
   getItemDef,
   getItemsUsingIngredient,
@@ -21,7 +22,44 @@ import { GameEngine } from '../engine/GameEngine';
 import { HeroEntity } from '../engine/GameState';
 import { IconAtlas } from '../engine/IconAtlas';
 import { CoopManager } from '../net/CoopManager';
-import { ItemDef, TowerType, ZoneId } from '../types';
+import { ItemDef, StatBlock, TowerType, ZoneId } from '../types';
+
+const HOK_STAT_DEFS: Array<{
+  key: keyof StatBlock;
+  short: string;
+  label: string;
+  tone: 'atk' | 'ap' | 'hp' | 'def' | 'spd' | 'spec';
+  pct?: boolean;
+  suffix?: string;
+  scaleExclusive?: boolean;
+  scaleCleave?: boolean;
+  scaleSplash?: boolean;
+}> = [
+  { key: 'ad', short: '物攻', label: '物理攻击', tone: 'atk', scaleExclusive: true },
+  { key: 'ap', short: '法强', label: '法术强度', tone: 'ap', scaleExclusive: true },
+  { key: 'maxHp', short: '生命', label: '最大生命', tone: 'hp', scaleExclusive: true },
+  { key: 'armor', short: '护甲', label: '物理护甲', tone: 'def', scaleExclusive: true },
+  { key: 'atkSpeed', short: '攻速', label: '攻击速度', tone: 'atk', pct: true },
+  { key: 'critChance', short: '暴击', label: '暴击几率', tone: 'atk', pct: true },
+  { key: 'critMult', short: '暴伤', label: '暴击效果', tone: 'atk', pct: true },
+  { key: 'lifesteal', short: '吸血', label: '物理吸血', tone: 'hp', pct: true },
+  { key: 'multishot', short: '齐射', label: '多重齐射', tone: 'spec', suffix: '箭' },
+  { key: 'pierceBonus', short: '穿透', label: '箭矢穿透', tone: 'spec' },
+  { key: 'armorPen', short: '破甲', label: '护甲穿透', tone: 'spec', pct: true },
+  { key: 'cleave', short: '顺劈', label: '顺劈溅射', tone: 'spec', pct: true, scaleCleave: true },
+  { key: 'splashRadius', short: '溅射', label: '范围溅射', tone: 'spec', suffix: 'px', scaleSplash: true },
+  { key: 'orbChainChance', short: '闪电', label: '电弧连锁', tone: 'spec', pct: true },
+  { key: 'cdr', short: '冷却', label: '冷却缩减', tone: 'ap', pct: true },
+  { key: 'moveSpeed', short: '移速', label: '移动速度', tone: 'spd' },
+  { key: 'attackRange', short: '射程', label: '攻击射程', tone: 'spd' },
+  { key: 'damageReduce', short: '免伤', label: '伤害减免', tone: 'def', pct: true },
+  { key: 'thorns', short: '反伤', label: '荆棘反伤', tone: 'def', scaleExclusive: true },
+  { key: 'healPower', short: '治疗', label: '治疗护盾', tone: 'hp', pct: true, scaleExclusive: true },
+  { key: 'summonPower', short: '召唤', label: '召唤增幅', tone: 'ap', pct: true, scaleExclusive: true },
+  { key: 'maxMp', short: '法力', label: '最大法力', tone: 'ap' },
+  { key: 'mpRegen', short: '回蓝', label: '法力回复', tone: 'ap', suffix: '/s' },
+  { key: 'hpRegen', short: '回血', label: '生命回复', tone: 'hp', suffix: '/s' },
+];
 
 type ShopCategory =
   | 'recommended'
@@ -95,6 +133,25 @@ export class ModalsUI {
       this.lastShopLiveHash = '';
       this.render();
     }
+  }
+
+  public openShopForBagSlot(idx: number, inInv = true): void {
+    const hero = this.engine.getLocalHero();
+    if (!hero) return;
+    const arr = inInv ? hero.inventory : hero.stash;
+    this.activeModal = 'shop';
+    this.lastShopLiveHash = '';
+    if (arr[idx]) {
+      this.selectedBagSlot = { inInv, idx };
+      this.shopCat = inInv ? 'recommended' : 'stash_gift';
+    } else {
+      this.selectedBagSlot = null;
+      this.shopCat = 'recommended';
+      const buildIds = getHeroHoKEndgameBuild(hero.classId);
+      this.selectedShopItemId =
+        hero.pinnedRecipeId || buildIds[idx] || getHeroRecommendedRecipeTargets(hero.classId)[0] || 'wep_t1';
+    }
+    this.render();
   }
 
   public toggleTeleport(): void {
@@ -179,7 +236,12 @@ export class ModalsUI {
     if (stoneEl) stoneEl.textContent = `${hero.stones}石`;
 
     const groups = this.getShopGroupsForCategory(hero);
-    const visibleIds = groups.flatMap((g) => g.items.map((it) => it.id));
+    const visibleIds = Array.from(
+      new Set([
+        ...groups.flatMap((g) => g.items.map((it) => it.id)),
+        ...(this.shopCat === 'recommended' ? getHeroHoKEndgameBuild(hero.classId) : []),
+      ])
+    );
     if (this.selectedShopItemId && !visibleIds.includes(this.selectedShopItemId)) {
       visibleIds.push(this.selectedShopItemId);
     }
@@ -359,19 +421,37 @@ export class ModalsUI {
       `;
     } else {
       const groups = this.getShopGroupsForCategory(hero);
-      middleHtml = groups
-        .map(
-          (grp) => `
+      const ribbonHtml = this.shopCat === 'recommended' ? this.renderHoKRecommendedPlanRibbon(hero) : '';
+      middleHtml =
+        ribbonHtml +
+        groups
+          .map(
+            (grp) => `
           <div class="hok-shop-group-title">${grp.title}</div>
           <div class="hok-item-grid">
             ${grp.items.map((it) => this.renderHoKItemTile(it)).join('')}
           </div>
         `
-        )
-        .join('');
+          )
+          .join('');
     }
 
     const detailHtml = this.buildShopDetailPanel(hero, allies);
+    const equippedCount = hero.inventory.filter(Boolean).length;
+    const activeSets = SET_BONUSES.map((sb) => ({
+      sb,
+      cnt: hero.inventory.filter((id) => id && getItemDef(id)?.setId === sb.id).length,
+    })).filter((x) => x.cnt >= 2);
+    const activeSetHtml =
+      activeSets.length > 0
+        ? activeSets
+            .slice(0, 1)
+            .map(
+              ({ sb, cnt }) =>
+                `<span class="hok-footer-set-pill">${sb.name.replace('套装', '')} ${cnt}/${sb.fullPieceCount ?? 4}</span>`
+            )
+            .join('')
+        : '';
 
     return `
       <div class="hok-shop-head">
@@ -414,7 +494,10 @@ export class ModalsUI {
       </div>
 
       <div class="hok-shop-footer">
-        <span class="hok-footer-label">已出装备</span>
+        <div class="hok-footer-head">
+          <span class="hok-footer-label">已出装备 ${equippedCount}/6</span>
+          ${activeSetHtml}
+        </div>
         <div class="hok-footer-slots">
           ${hero.inventory
             .map((id, idx) => {
@@ -422,17 +505,19 @@ export class ModalsUI {
               const rm = it ? RARITY_META[it.rarity] : undefined;
               const next = it ? getUpgradesTo(it.id) : undefined;
               const canUpg = next ? planDirectAcquire(world, hero, next.id).canDo : false;
+              const hasAct = Boolean(it?.activeSkill);
               const isSel =
                 Boolean(this.selectedBagSlot && this.selectedBagSlot.inInv && this.selectedBagSlot.idx === idx);
               return `
                 <button class="hok-footer-slot ${isSel ? 'is-selected' : ''} ${it ? 'has-item' : ''}"
                         data-bag-slot="1:${idx}" type="button"
-                        style="${rm ? `border-color:${rm.border};` : ''}"
+                        style="${rm ? `border-color:${rm.border};box-shadow:0 0 8px ${rm.border}66;` : ''}"
                         title="${it ? `${it.name}（点击查看 / 出售 / 升阶）` : `空装备格 #${idx + 1}`}">
                   ${
                     it
                       ? `<img src="${IconAtlas.getDataUrl(it.iconKey)}" alt="" />
-                         ${canUpg ? '<span class="hok-slot-upg-tag">↑</span>' : ''}`
+                         ${canUpg ? '<span class="hok-slot-upg-tag">↑</span>' : ''}
+                         ${hasAct ? '<span class="hok-slot-act-tag">主</span>' : ''}`
                       : `<span class="hok-slot-num">${idx + 1}</span>`
                   }
                 </button>
@@ -447,6 +532,156 @@ export class ModalsUI {
     `;
   }
 
+  private renderHoKRecommendedPlanRibbon(hero: HeroEntity): string {
+    const world = this.engine.world!;
+    const buildIds = getHeroHoKEndgameBuild(hero.classId);
+    const heroDef = getHeroClassDef(hero.classId);
+    const ownedPool = [...hero.inventory];
+    return `
+      <div class="hok-build-ribbon">
+        <div class="hok-build-ribbon-head">
+          <span class="hok-build-ribbon-title">👑 ${heroDef.title} · 本命六神装方案</span>
+          <span class="hok-build-ribbon-sub">点选查属性/合成树 · 自动匹配套装</span>
+        </div>
+        <div class="hok-build-ribbon-slots">
+          ${buildIds
+            .map((id, idx) => {
+              const it = getItemDef(id);
+              if (!it) return '';
+              const rm = RARITY_META[it.rarity];
+              const ownedIdx = ownedPool.indexOf(it.id);
+              const isOwned = ownedIdx >= 0;
+              if (isOwned) ownedPool[ownedIdx] = null;
+              const isPinned = hero.pinnedRecipeId === it.id;
+              const canDo = planDirectAcquire(world, hero, it.id).canDo;
+              const isSel = !this.selectedBagSlot && this.selectedShopItemId === it.id;
+              return `
+                <button class="hok-plan-slot ${isOwned ? 'is-owned' : ''} ${canDo ? 'can-afford' : ''} ${isSel ? 'is-selected' : ''}"
+                        data-select-item="${it.id}" type="button"
+                        style="border-color:${isSel ? '#fde047' : isOwned ? '#22c55e' : rm.border};"
+                        title="${it.name}: ${it.desc}">
+                  <img src="${IconAtlas.getDataUrl(it.iconKey)}" alt="" />
+                  <span class="hok-plan-idx">${idx + 1}</span>
+                  <span class="hok-plan-name" style="color:${rm.color};">${it.name.replace(/（.*）/, '').slice(0, 5)}</span>
+                  ${
+                    isOwned
+                      ? '<span class="hok-plan-badge own">已出</span>'
+                      : isPinned
+                        ? '<span class="hok-plan-badge pin">预购</span>'
+                        : canDo
+                          ? '<span class="hok-plan-badge buy">可买</span>'
+                          : ''
+                  }
+                </button>
+              `;
+            })
+            .join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  private getHoKStatEntries(
+    it: ItemDef,
+    exclusiveLv = 1
+  ): Array<{ short: string; label: string; valueText: string; tone: string }> {
+    const st = it.stats;
+    if (!st) return [];
+    const exMult = it.heroExclusive ? 1 + (Math.max(1, exclusiveLv) - 1) * 0.25 : 1;
+    const cleaveMult = it.heroExclusive ? 1 + (Math.max(1, exclusiveLv) - 1) * 0.2 : 1;
+    const spMult = it.heroExclusive ? 1 + (Math.max(1, exclusiveLv) - 1) * 0.12 : 1;
+    const out: Array<{ short: string; label: string; valueText: string; tone: string }> = [];
+    for (const def of HOK_STAT_DEFS) {
+      const raw = st[def.key];
+      if (typeof raw !== 'number' || raw === 0) continue;
+      const mult = def.scaleCleave ? cleaveMult : def.scaleSplash ? spMult : def.scaleExclusive ? exMult : 1;
+      const val = raw * mult;
+      const valueText = def.pct
+        ? `+${Math.round(val * 100)}%`
+        : `+${Math.round(val)}${def.suffix || ''}`;
+      out.push({ short: def.short, label: def.label, valueText, tone: def.tone });
+    }
+    return out;
+  }
+
+  private formatCompactTileStat(it: ItemDef): string {
+    const entries = this.getHoKStatEntries(it, 1);
+    if (entries.length > 0) {
+      return entries
+        .slice(0, 2)
+        .map((e) => `${e.short}${e.valueText}`)
+        .join(' · ');
+    }
+    return it.desc.slice(0, 16);
+  }
+
+  private renderHoKStatPillsHtml(it: ItemDef, exclusiveLv = 1): string {
+    const entries = this.getHoKStatEntries(it, exclusiveLv);
+    if (entries.length === 0) return '';
+    return `
+      <div class="hok-stat-pills">
+        ${entries
+          .map(
+            (e) =>
+              `<span class="hok-stat-pill tone-${e.tone}"><em>${e.label}</em><strong>${e.valueText}</strong></span>`
+          )
+          .join('')}
+      </div>
+    `;
+  }
+
+  private renderHoKSpecialEffectsHtml(it: ItemDef, hero: HeroEntity): string {
+    const st = it.stats || {};
+    const passives: string[] = [];
+    if (st.multishot) {
+      passives.push(`唯一被动-多重星矢：普攻额外齐射 +${st.multishot} 支箭矢（共 ${1 + st.multishot} 支）`);
+    }
+    if (st.pierceBonus) {
+      passives.push(`唯一被动-穿云：远程普攻箭矢额外穿透 ${st.pierceBonus} 名敌人`);
+    }
+    if (st.cleave) {
+      const cleaveMult = it.heroExclusive ? 1 + (hero.exclusiveLevel - 1) * 0.2 : 1;
+      passives.push(`唯一被动-裂空顺劈：近战普攻对前方扇形敌人造成 ${Math.round(st.cleave * cleaveMult * 100)}% 溅射伤害`);
+    }
+    if (st.splashRadius) {
+      const spMult = it.heroExclusive ? 1 + (hero.exclusiveLevel - 1) * 0.12 : 1;
+      passives.push(`唯一被动-星陨溅射：普攻命中引爆 ${Math.round(st.splashRadius * spMult)}px 范围冲击`);
+    }
+    if (st.orbChainChance) {
+      passives.push(`唯一被动-雷霆电弧：普攻 ${Math.round(st.orbChainChance * 100)}% 几率触发连锁闪电`);
+    }
+    if (st.armorPen) {
+      passives.push(`唯一被动-碎甲：无视敌方 ${Math.round(st.armorPen * 100)}% 物理护甲`);
+    }
+    if (st.thorns) {
+      const thornsMult = it.heroExclusive ? 1 + (hero.exclusiveLevel - 1) * 0.25 : 1;
+      passives.push(`唯一被动-荆棘圣盾：受到攻击反弹 ${Math.round(st.thorns * thornsMult)} 点伤害`);
+    }
+    if (st.healPower || st.summonPower) {
+      passives.push('唯一被动-圣谕祝福：大幅强化治疗护盾与召唤物战力');
+    }
+    if (it.heroExclusive) {
+      passives.push(`专属成长（Lv.${hero.exclusiveLevel}/5）：每击败试炼镜像提升 25% 核心属性`);
+    }
+
+    const passiveHtml =
+      passives.length > 0
+        ? `<div class="hok-passive-card">
+            <div class="hok-effect-tag passive">唯一被动 / 特效</div>
+            ${passives.map((p) => `<div class="hok-effect-line">${p}</div>`).join('')}
+           </div>`
+        : `<div class="hok-detail-desc">${it.desc}</div>`;
+
+    const activeHtml = it.activeSkill
+      ? `<div class="hok-active-card">
+          <div class="hok-effect-tag active">唯一主动 · ${it.activeSkill.name} (${it.activeSkill.cooldown}s)</div>
+          <div class="hok-effect-line">${it.activeSkill.desc}</div>
+         </div>`
+      : '';
+
+    return passiveHtml + activeHtml;
+  }
+
   private renderHoKItemTile(it: ItemDef): string {
     const world = this.engine.world!;
     const hero = this.engine.getLocalHero()!;
@@ -459,6 +694,7 @@ export class ModalsUI {
       it.category === 'material' && !it.shopVisible
         ? 'Boss掉落'
         : `${plan.goldCost}G${plan.crystalCost > 0 ? `+${plan.crystalCost}木` : ''}${plan.stoneCost > 0 ? `+${plan.stoneCost}石` : ''}`;
+    const statBrief = this.formatCompactTileStat(it);
 
     return `
       <button class="hok-item-tile ${plan.canDo ? 'can-afford' : ''} ${isSel ? 'is-selected' : ''} ${isPinned ? 'is-pinned' : ''}"
@@ -469,7 +705,11 @@ export class ModalsUI {
           ${isPinned ? '<span class="hok-tile-badge pin">预购</span>' : isOwned ? '<span class="hok-tile-badge own">已有</span>' : ''}
         </div>
         <div class="hok-tile-meta">
-          <div class="hok-tile-name" style="color:${rm.color};">${it.name}</div>
+          <div class="hok-tile-top">
+            <div class="hok-tile-name" style="color:${rm.color};">${it.name}</div>
+            <span class="hok-tile-rarity" style="color:${rm.color};border-color:${rm.border};">${rm.label}</span>
+          </div>
+          <div class="hok-tile-stat">${statBrief}</div>
           <div class="hok-tile-cost ${plan.canDo ? 'affordable' : ''}">${plan.mode === 'upgrade' ? '升阶 ' : ''}${costStr}</div>
         </div>
       </button>
@@ -498,10 +738,11 @@ export class ModalsUI {
               <img class="hok-detail-ico" src="${IconAtlas.getDataUrl(it.iconKey)}" alt="" style="border-color:${rm.border};" />
               <div class="hok-detail-titlebox">
                 <div class="hok-detail-name" style="color:${rm.color};">${it.name}${it.heroExclusive ? ` Lv.${hero.exclusiveLevel}` : ''}</div>
-                <div class="hok-detail-sub">${rm.label} · ${inInv ? `已出栏 #${idx + 1}` : `储物箱 #${idx + 1}`}</div>
+                <div class="hok-detail-sub"><span class="hok-detail-rarity-badge" style="color:${rm.color};border-color:${rm.border};">${rm.label}</span> ${inInv ? `已出神装栏 #${idx + 1}` : `储物箱 #${idx + 1}`}</div>
               </div>
             </div>
-            <div class="hok-detail-desc">${it.desc}</div>
+            ${this.renderHoKStatPillsHtml(it, it.heroExclusive ? hero.exclusiveLevel : 1)}
+            ${this.renderHoKSpecialEffectsHtml(it, hero)}
             ${
               next
                 ? `<div class="hok-upg-preview">
@@ -580,15 +821,11 @@ export class ModalsUI {
           <img class="hok-detail-ico" src="${IconAtlas.getDataUrl(it.iconKey)}" alt="" style="border-color:${rm.border};" />
           <div class="hok-detail-titlebox">
             <div class="hok-detail-name" style="color:${rm.color};">${it.name}</div>
-            <div class="hok-detail-sub">${rm.label} · ${costLabel}</div>
+            <div class="hok-detail-sub"><span class="hok-detail-rarity-badge" style="color:${rm.color};border-color:${rm.border};">${rm.label}</span> ${costLabel}</div>
           </div>
         </div>
-        <div class="hok-detail-desc">${it.desc}</div>
-        ${
-          it.activeSkill
-            ? `<div class="hok-detail-active">主动【${it.activeSkill.name}】(${it.activeSkill.cooldown}s)：${it.activeSkill.desc}</div>`
-            : ''
-        }
+        ${this.renderHoKStatPillsHtml(it, it.heroExclusive ? hero.exclusiveLevel : 1)}
+        ${this.renderHoKSpecialEffectsHtml(it, hero)}
         ${this.renderSetBonusPreviewHtml(hero, it.setId)}
         ${this.renderVisualTreeHtml(hero, it)}
         ${this.renderParentChipsHtml(parents)}
@@ -1031,6 +1268,12 @@ export class ModalsUI {
         const arr = inv === '1' ? h.inventory : h.stash;
         if (arr[idx]) {
           this.selectedBagSlot = { inInv: inv === '1', idx };
+          this.render();
+        } else if (inv === '1') {
+          const buildIds = getHeroHoKEndgameBuild(h.classId);
+          this.selectedBagSlot = null;
+          this.shopCat = 'recommended';
+          if (buildIds[idx]) this.selectedShopItemId = buildIds[idx];
           this.render();
         }
       };

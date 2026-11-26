@@ -87,6 +87,7 @@ export interface StatBlock {
   orbChainChance?: number; // War3 Orb of Lightning chain trigger probability (0..0.75)
   armorPen?: number; // percentage armor penetration (0..0.6)
   pierceBonus?: number; // extra projectile pierce count on ranged basic attacks (0..5)
+  multishot?: number; // extra projectiles per basic attack from equipment (0..5)
   healPower?: number; // bonus healing & shield multiplier (0..2.2)
   summonPower?: number; // bonus summon HP & AD multiplier (0..2.5)
 }

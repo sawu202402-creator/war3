@@ -176,7 +176,7 @@ export class LobbyUI {
       <div class="install-guide-card war3-stone-panel">
         <div class="install-guide-top">
           <div class="install-icon-preview">
-            <img src="./assets/app_icon_ui.png" width="56" height="56" alt="圣殿守卫战" />
+            <img src="./assets/app_icon_ui.png?v=3" width="56" height="56" alt="圣殿守卫战" />
             <span>圣殿守卫战</span>
           </div>
           <div class="install-guide-head">
@@ -322,7 +322,7 @@ export class LobbyUI {
             </button>
             ${
               PwaInstallManager.canShowHomeScreenShortcut()
-                ? `<button class="hub-install-btn" id="btn-hub-install" type="button" title="添加到桌面全屏畅玩"><img src="./assets/app_icon_ui.png" width="18" height="18" alt="" /><span>添加桌面</span></button>`
+                ? `<button class="hub-install-btn" id="btn-hub-install" type="button" title="添加到桌面全屏畅玩"><img src="./assets/app_icon_ui.png?v=3" width="18" height="18" alt="" /><span>添加桌面</span></button>`
                 : ''
             }
           </div>

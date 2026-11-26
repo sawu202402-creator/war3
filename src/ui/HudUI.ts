@@ -1,5 +1,5 @@
 import { getHeroClassDef } from '../data/heroes';
-import { RARITY_META, getItemDef } from '../data/items';
+import { RARITY_META, getItemDef, getUpgradesTo } from '../data/items';
 import { WORLD_HEIGHT, WORLD_WIDTH, ZONES } from '../data/worldMap';
 import {
   canUpgradeSkill,
@@ -9,7 +9,7 @@ import {
   getSkillMaxLevel,
   getSkillRequiredHeroLevel,
 } from '../engine/CombatSystem';
-import { getQuickBuyOptions } from '../engine/EconomySystem';
+import { getQuickBuyOptions, planDirectAcquire } from '../engine/EconomySystem';
 import { GameEngine } from '../engine/GameEngine';
 import { IconAtlas } from '../engine/IconAtlas';
 import { CoopManager } from '../net/CoopManager';
@@ -29,6 +29,7 @@ export class HudUI {
     private engine: GameEngine,
     private handlers: {
       onOpenShop: () => void;
+      onOpenShopSlot: (slotIdx: number) => void;
       onOpenTeleport: () => void;
       onOpenBase: () => void;
       onOpenPause: () => void;
@@ -50,7 +51,7 @@ export class HudUI {
             </div>
 
             <!-- 手机端左上角英雄属性与快捷装备胶囊 -->
-            <button class="hok-hero-pill war3-stone-panel" id="hok-hero-pill" type="button" title="点击打开商店与背包">
+            <div class="hok-hero-pill war3-stone-panel" id="hok-hero-pill" role="button" tabindex="0" title="点击打开商店与背包">
               <div class="hok-pill-ava-wrap">
                 <img id="hok-hero-portrait" src="" alt="" />
                 <span class="hok-pill-lv" id="hok-hero-lv">1</span>
@@ -61,10 +62,10 @@ export class HudUI {
                 <div class="hok-pill-bar mp"><div id="hok-mp-fill" style="width:100%"></div></div>
                 <div class="hok-pill-bar xp"><div id="hok-xp-fill" style="width:0%"></div></div>
                 <div class="hok-mini-inv" id="hok-inv-grid">
-                  ${[0, 1, 2, 3, 4, 5].map((i) => `<span class="hok-inv-dot" id="hok-inv-${i}"></span>`).join('')}
+                  ${[0, 1, 2, 3, 4, 5].map((i) => `<button class="hok-inv-dot" id="hok-inv-${i}" type="button" title="装备格 #${i + 1}"></button>`).join('')}
                 </div>
               </div>
-            </button>
+            </div>
           </div>
 
           <div class="hud-quickbuy-stack">
@@ -266,7 +267,7 @@ export class HudUI {
         </div>
 
         <div class="pc-inv-grid" id="pc-inv-grid">
-          ${[0, 1, 2, 3, 4, 5].map((i) => `<div class="pc-inv-cell" id="pc-inv-${i}"></div>`).join('')}
+          ${[0, 1, 2, 3, 4, 5].map((i) => `<button class="pc-inv-cell" id="pc-inv-${i}" type="button" title="装备格 #${i + 1}"></button>`).join('')}
         </div>
 
         <div class="pc-action-stack">
@@ -405,6 +406,19 @@ export class HudUI {
       this.sync();
     };
     q('#hok-hero-pill').onclick = () => this.handlers.onOpenShop();
+    for (let i = 0; i < 6; i++) {
+      const hokSlot = q(`#hok-inv-${i}`);
+      hokSlot.addEventListener('pointerdown', (e) => e.stopPropagation());
+      hokSlot.onclick = (e) => {
+        e.stopPropagation();
+        this.handlers.onOpenShopSlot(i);
+      };
+      const pcSlot = q(`#pc-inv-${i}`);
+      pcSlot.onclick = (e) => {
+        e.stopPropagation();
+        this.handlers.onOpenShopSlot(i);
+      };
+    }
     q('#hud-hok-shop-btn').onclick = () => this.handlers.onOpenShop();
     q('#btn-hud-pause').onclick = () => this.handlers.onOpenPause();
     q('#btn-early-wave').onclick = () => this.engine.actionBase('early_wave');
@@ -835,8 +849,13 @@ export class HudUI {
       itemBtn.style.display = 'none';
     }
 
-    // Memoized Inventory Grid (PC + Mobile mini strip)
-    const invHash = local.inventory.map((x) => x || '').join('|');
+    // Memoized Inventory Grid (PC + Mobile clickable 6-slot HoK bar)
+    const upgFlags = local.inventory.map((id) => {
+      if (!id) return '0';
+      const next = getUpgradesTo(id);
+      return next && planDirectAcquire(world, local, next.id).canDo ? '1' : '0';
+    });
+    const invHash = `${local.inventory.map((x) => x || '').join('|')}#${upgFlags.join('')}`;
     if (invHash !== this.lastInvHash) {
       this.lastInvHash = invHash;
       for (let i = 0; i < 6; i++) {
@@ -845,16 +864,35 @@ export class HudUI {
         const itemId = local.inventory[i];
         const itemDef = itemId ? getItemDef(itemId) : null;
         if (itemDef) {
-          const border = RARITY_META[itemDef.rarity].border;
-          const html = `<img src="${IconAtlas.getDataUrl(itemDef.iconKey)}" title="${itemDef.name}: ${itemDef.desc}" alt="" />`;
-          cell.style.borderColor = border;
+          const rm = RARITY_META[itemDef.rarity];
+          const canUpg = upgFlags[i] === '1';
+          const isAct = Boolean(itemDef.activeSkill);
+          const title = `${itemDef.name}${canUpg ? ' [可升阶]' : ''}${isAct ? ` [主动:${itemDef.activeSkill!.name}]` : ''} — 点击查看`;
+          const html = `
+            <img src="${IconAtlas.getDataUrl(itemDef.iconKey)}" title="${title}" alt="" />
+            ${canUpg ? '<span class="inv-upg-pip">↑</span>' : ''}
+            ${isAct ? '<span class="inv-act-pip">主</span>' : ''}
+          `;
+          cell.classList.add('has-item');
+          cell.style.borderColor = rm.border;
+          cell.style.boxShadow = `inset 0 0 6px ${rm.border}66, 0 0 5px ${rm.border}66`;
+          cell.title = title;
           cell.innerHTML = html;
-          hokDot.style.borderColor = border;
+          hokDot.classList.add('has-item');
+          hokDot.style.borderColor = rm.border;
+          hokDot.style.boxShadow = `0 0 5px ${rm.border}66`;
+          hokDot.title = title;
           hokDot.innerHTML = html;
         } else {
+          cell.classList.remove('has-item');
           cell.style.borderColor = '#475569';
+          cell.style.boxShadow = '';
+          cell.title = `空装备格 #${i + 1}（点击出装推荐）`;
           cell.innerHTML = '';
+          hokDot.classList.remove('has-item');
           hokDot.style.borderColor = '#475569';
+          hokDot.style.boxShadow = '';
+          hokDot.title = `空装备格 #${i + 1}（点击出装推荐）`;
           hokDot.innerHTML = '';
         }
       }

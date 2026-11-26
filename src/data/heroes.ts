@@ -505,8 +505,8 @@ export const HERO_CLASSES: HeroClassDef[] = [
       armor: 1.4,
       atkSpeed: 0.065,
     },
-    passiveName: '多重星矢',
-    passiveDesc: '1 级单发点射；4 / 8 / 14 级起普攻分别解锁 2 / 3 / 4 支多重分裂箭（觉醒苍穹神射再 +2 箭）。',
+    passiveName: '疾风箭矢',
+    passiveDesc: '天赋射术：随等级提升攻速、暴击与游走机动（初始普攻为单体点射，多重齐射与穿透箭雨需装备弓弩解锁）。',
     skills: [
       {
         slot: 0,
@@ -584,11 +584,11 @@ export const HERO_CLASSES: HeroClassDef[] = [
       {
         id: 'rng_skybow',
         name: '苍穹神射',
-        tag: '无限分裂箭',
+        tag: '极速箭雨',
         color: '#22c55e',
-        desc: '额外分裂箭数量 +2 且攻速上限解除，化身移动箭雨炮台。',
+        desc: '解除攻速上限并放大弓弩齐射箭雨伤害，化身移动箭雨炮台。',
         bonuses: { ad: 185, atkSpeed: 0.85, attackRange: 75, critChance: 0.15 },
-        specialEffect: '多重星矢额外 +2 支箭矢，分裂箭伤害提升至 85%',
+        specialEffect: '攻速上限突破至 6.0/s，装备触发的多重齐射副箭伤害提升至 90%',
       },
       {
         id: 'rng_shadowhunter',

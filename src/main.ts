@@ -111,6 +111,7 @@ async function bootstrap() {
   modals = new ModalsUI(uiLayer, engine, enterLobby, toggleFullscreenLandscape, returnToCoopRoom);
   hud = new HudUI(uiLayer, engine, {
     onOpenShop: () => modals.toggleShop(),
+    onOpenShopSlot: (slotIdx: number) => modals.openShopForBagSlot(slotIdx, true),
     onOpenTeleport: () => modals.toggleTeleport(),
     onOpenBase: () => modals.toggleBase(),
     onOpenPause: () => modals.togglePause(),

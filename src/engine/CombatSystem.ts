@@ -128,6 +128,7 @@ export function recalcHeroStats(hero: HeroEntity): void {
     orbChainChance: 0,
     armorPen: 0,
     pierceBonus: 0,
+    multishot: 0,
     healPower: 0,
     summonPower: 0,
   };
@@ -168,6 +169,7 @@ export function recalcHeroStats(hero: HeroEntity): void {
     if (st.thorns) s.thorns += st.thorns * mult;
     if (st.armorPen) s.armorPen = (s.armorPen || 0) + st.armorPen * mult;
     if (st.pierceBonus) s.pierceBonus = (s.pierceBonus || 0) + st.pierceBonus;
+    if (st.multishot) s.multishot = (s.multishot || 0) + st.multishot;
     if (st.healPower) s.healPower = (s.healPower || 0) + st.healPower * mult;
     if (st.summonPower) s.summonPower = (s.summonPower || 0) + st.summonPower * mult;
     if (st.cleave) {
@@ -207,6 +209,7 @@ export function recalcHeroStats(hero: HeroEntity): void {
       if (part.thorns) s.thorns += part.thorns;
       if (part.armorPen) s.armorPen = (s.armorPen || 0) + part.armorPen;
       if (part.pierceBonus) s.pierceBonus = (s.pierceBonus || 0) + part.pierceBonus;
+      if (part.multishot) s.multishot = (s.multishot || 0) + part.multishot;
       if (part.healPower) s.healPower = (s.healPower || 0) + part.healPower;
       if (part.summonPower) s.summonPower = (s.summonPower || 0) + part.summonPower;
       if (part.splashRadius) s.splashRadius = Math.max(s.splashRadius || 0, part.splashRadius);
@@ -301,13 +304,15 @@ export function recalcHeroStats(hero: HeroEntity): void {
   s.cdr = Math.min(0.55, Math.max(0, s.cdr));
   s.damageReduce = Math.min(0.65, Math.max(0, s.damageReduce));
   s.lifesteal = Math.min(0.65, Math.max(0, s.lifesteal));
-  s.atkSpeed = Math.min(4.2, Math.max(0.6, s.atkSpeed));
+  const maxAtkSpeed = hero.awakeningBranchId === 'rng_skybow' ? 6.0 : 4.2;
+  s.atkSpeed = Math.min(maxAtkSpeed, Math.max(0.6, s.atkSpeed));
   s.moveSpeed = Math.min(540, Math.max(180, s.moveSpeed));
   s.cleave = Math.min(1.2, Math.max(0, s.cleave || 0));
   s.splashRadius = Math.min(150, Math.max(0, s.splashRadius || 0));
   s.orbChainChance = Math.min(0.75, Math.max(0, s.orbChainChance || 0));
   s.armorPen = Math.min(0.6, Math.max(0, s.armorPen || 0));
   s.pierceBonus = Math.min(5, Math.max(0, Math.round(s.pierceBonus || 0)));
+  s.multishot = Math.min(5, Math.max(0, Math.round(s.multishot || 0)));
   s.healPower = Math.min(2.2, Math.max(0, s.healPower || 0));
   s.summonPower = Math.min(2.5, Math.max(0, s.summonPower || 0));
 
@@ -785,7 +790,7 @@ export function performBasicAttack(
       maybeTriggerOrbChain(world, hero, primary, onEnemyKilled);
     }
   } else {
-    // Ranged Hero Projectiles (single target at Lv.1; unlocks Multishot / Orb Splash via level & gear)
+    // Ranged Hero Projectiles (strictly single-target without gear; multishot / pierce / splash / orb come only from equipment)
     world.vfx.push({
       kind: 'cast_burst',
       x: hero.x + dirX * 22,
@@ -802,13 +807,8 @@ export function performBasicAttack(
     }
 
     const baseAng = hero.facing;
-    let arrowCount = 1;
-    if (hero.classId === 'ranger') {
-      arrowCount =
-        (hero.level >= 14 ? 4 : hero.level >= 8 ? 3 : hero.level >= 4 ? 2 : 1) +
-        (hero.awakeningBranchId === 'rng_skybow' ? 2 : 0);
-      arrowCount = Math.min(6, arrowCount);
-    }
+    const arrowCount = Math.min(6, 1 + Math.max(0, hero.stats.multishot || 0));
+    const centerIdx = Math.floor(arrowCount / 2);
 
     const dmgBase = hero.classId === 'archmage' || hero.classId === 'priest'
       ? hero.stats.ap * 0.85 + hero.stats.ad * 0.35
@@ -822,7 +822,7 @@ export function performBasicAttack(
       const offset = arrowCount === 1 ? 0 : (i - (arrowCount - 1) / 2) * spread;
       const ang = baseAng + offset;
       const spd = hero.classId === 'ranger' ? ((hero.stats.pierceBonus || 0) >= 2 ? 820 : 760) : 620;
-      const splitMult = i === 0 ? 1 : hero.awakeningBranchId === 'rng_skybow' ? 0.85 : 0.68;
+      const splitMult = arrowCount === 1 || i === centerIdx ? 1 : hero.awakeningBranchId === 'rng_skybow' ? 0.9 : 0.72;
       world.projectiles.push({
         id: world.nextEntityId++,
         fromEnemy: false,

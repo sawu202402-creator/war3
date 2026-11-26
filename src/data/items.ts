@@ -327,10 +327,10 @@ export const ITEMS: ItemDef[] = [
     rarity: 'uncommon',
     category: 'weapon',
     iconKey: 'item_bow_t2',
-    desc: '攻击 +68 · 攻速 +30% · 暴击 +10% · 射程 +45',
+    desc: '攻击 +68 · 攻速 +30% · 暴击 +10% · 射程 +45 · 齐射 +1 箭',
     upgradesFrom: 'bow_t1',
     upgradeCostGold: 360,
-    stats: { ad: 68, atkSpeed: 0.3, critChance: 0.1, attackRange: 45 },
+    stats: { ad: 68, atkSpeed: 0.3, critChance: 0.1, attackRange: 45, multishot: 1 },
   },
   {
     id: 'bow_t3',
@@ -338,11 +338,11 @@ export const ITEMS: ItemDef[] = [
     rarity: 'rare',
     category: 'weapon',
     iconKey: 'item_bow_t3',
-    desc: '攻击 +145 · 攻速 +48% · 暴击 +16% · 射程 +65 · 箭矢穿透 +1',
+    desc: '攻击 +145 · 攻速 +48% · 暴击 +16% · 射程 +65 · 齐射 +2 箭 · 箭矢穿透 +1',
     upgradesFrom: 'bow_t2',
     upgradeCostGold: 750,
     upgradeStones: 1,
-    stats: { ad: 145, atkSpeed: 0.48, critChance: 0.16, attackRange: 65, pierceBonus: 1 },
+    stats: { ad: 145, atkSpeed: 0.48, critChance: 0.16, attackRange: 65, multishot: 2, pierceBonus: 1 },
   },
   {
     id: 'bow_t4',
@@ -350,13 +350,13 @@ export const ITEMS: ItemDef[] = [
     rarity: 'epic',
     category: 'weapon',
     iconKey: 'item_bow_t4',
-    desc: '攻击 +285 · 攻速 +66% · 暴击 +22% · 射程 +85 · 穿透 +1 · 破甲 +15% · 逐星套部件',
+    desc: '攻击 +285 · 攻速 +66% · 暴击 +22% · 射程 +85 · 齐射 +2 箭 · 穿透 +1 · 破甲 +15% · 逐星套部件',
     upgradesFrom: 'bow_t3',
     upgradeCostGold: 1350,
     upgradeCostCrystal: 1,
     upgradeStones: 2,
     setId: 'set_ranger',
-    stats: { ad: 285, atkSpeed: 0.66, critChance: 0.22, attackRange: 85, pierceBonus: 1, armorPen: 0.15 },
+    stats: { ad: 285, atkSpeed: 0.66, critChance: 0.22, attackRange: 85, multishot: 2, pierceBonus: 1, armorPen: 0.15 },
   },
 
   // 圣谕牧杖线（祭司辅助与召唤专精）
@@ -718,10 +718,10 @@ export const ITEMS: ItemDef[] = [
     rarity: 'legendary',
     category: 'weapon',
     iconKey: 'item_leg_starbow',
-    desc: '攻击 +580 · 攻速 +95% · 射程 +110 · 穿透 +2 · 闪电球 35% · 逐星套 · 主动：星陨齐射',
+    desc: '攻击 +580 · 攻速 +95% · 射程 +110 · 齐射 +4 箭 · 穿透 +2 · 闪电球 35% · 逐星套 · 主动：星陨齐射',
     setId: 'set_ranger',
     recipe: { items: ['bow_t4', 'comp_claw', 'comp_thunder', 'mat_thunder'], gold: 1200, crystal: 2 },
-    stats: { ad: 580, atkSpeed: 0.95, critChance: 0.28, attackRange: 110, pierceBonus: 2, orbChainChance: 0.35, moveSpeed: 28 },
+    stats: { ad: 580, atkSpeed: 0.95, critChance: 0.28, attackRange: 110, multishot: 4, pierceBonus: 2, orbChainChance: 0.35, moveSpeed: 28 },
     activeSkill: {
       id: 'act_starbow',
       name: '星陨齐射',
@@ -735,10 +735,10 @@ export const ITEMS: ItemDef[] = [
     rarity: 'legendary',
     category: 'weapon',
     iconKey: 'item_leg_shadowcrossbow',
-    desc: '攻击 +690 · 暴击 +34% · 暴伤 +55% · 破甲 +30% · 穿透 +1 · 吸血 +16% · 逐星套',
+    desc: '攻击 +690 · 暴击 +34% · 暴伤 +55% · 破甲 +30% · 齐射 +2 箭 · 穿透 +1 · 吸血 +16% · 逐星套',
     setId: 'set_ranger',
     recipe: { items: ['bow_t4', 'comp_crit', 'comp_vamp', 'mat_fire'], gold: 1200, crystal: 2 },
-    stats: { ad: 690, atkSpeed: 0.72, critChance: 0.34, critMult: 0.55, lifesteal: 0.16, attackRange: 95, armorPen: 0.3, pierceBonus: 1 },
+    stats: { ad: 690, atkSpeed: 0.72, critChance: 0.34, critMult: 0.55, lifesteal: 0.16, attackRange: 95, armorPen: 0.3, multishot: 2, pierceBonus: 1 },
   },
   {
     id: 'leg_lifescepter',
@@ -821,7 +821,7 @@ export const ITEMS: ItemDef[] = [
     rarity: 'mythic',
     category: 'weapon',
     iconKey: 'item_myth_windrunner',
-    desc: '【神话】攻击 +1420 · 攻速 +125% · 射程 +140 · 穿透 +3 · 破甲 +38% · 闪电球 40% · 逐星套核心',
+    desc: '【神话】攻击 +1420 · 攻速 +125% · 射程 +140 · 齐射 +5 箭 · 穿透 +3 · 破甲 +38% · 闪电球 40% · 逐星套核心',
     setId: 'set_ranger',
     recipe: { items: ['leg_starbow', 'mat_ice', 'mat_abyss'], gold: 2400, crystal: 5 },
     stats: {
@@ -832,6 +832,7 @@ export const ITEMS: ItemDef[] = [
       lifesteal: 0.22,
       attackRange: 140,
       armorPen: 0.38,
+      multishot: 5,
       pierceBonus: 3,
       orbChainChance: 0.4,
       moveSpeed: 55,
@@ -932,8 +933,8 @@ export const ITEMS: ItemDef[] = [
     category: 'artifact',
     iconKey: 'item_ex_ranger',
     heroExclusive: 'ranger',
-    desc: '【成长型专属 Lv.1~5】星穹游侠击败试炼镜像解锁。大幅提升射程、破甲 +12%、箭矢穿透 +1 与暴击攻速。',
-    stats: { ad: 390, atkSpeed: 0.72, attackRange: 70, critChance: 0.2, moveSpeed: 40, pierceBonus: 1, armorPen: 0.12 },
+    desc: '【成长型专属 Lv.1~5】星穹游侠击败试炼镜像解锁。大幅提升射程、齐射 +1 箭、破甲 +12%、箭矢穿透 +1 与暴击攻速。',
+    stats: { ad: 390, atkSpeed: 0.72, attackRange: 70, critChance: 0.2, moveSpeed: 40, multishot: 1, pierceBonus: 1, armorPen: 0.12 },
   },
   {
     id: 'ex_priest',
@@ -988,9 +989,9 @@ export const SET_BONUSES: SetBonusDef[] = [
     fullPieceCount: 3,
     itemIds: ['bow_t4', 'leg_starbow', 'leg_shadowcrossbow', 'myth_windrunner'],
     twoPieceDesc: '2件：攻速 +35% · 射程 +55 · 破甲 +12%',
-    fourPieceDesc: '3件：物理攻击 +580 · 暴伤 +55% · 箭矢穿透 +1 · 破甲 +18%',
+    fourPieceDesc: '3件：物理攻击 +580 · 暴伤 +55% · 齐射 +1 箭 · 箭矢穿透 +1 · 破甲 +18%',
     twoPieceStats: { atkSpeed: 0.35, attackRange: 55, armorPen: 0.12 },
-    fourPieceStats: { ad: 580, critMult: 0.55, pierceBonus: 1, armorPen: 0.18 },
+    fourPieceStats: { ad: 580, critMult: 0.55, multishot: 1, pierceBonus: 1, armorPen: 0.18 },
   },
   {
     id: 'set_sanctum',
@@ -1043,5 +1044,20 @@ export function getHeroRecommendedRecipeTargets(heroId: HeroClassId): string[] {
       return ['leg_starbow', 'leg_shadowcrossbow', 'myth_windrunner'];
     case 'priest':
       return ['leg_lifescepter', 'leg_druidicstaff', 'myth_elune'];
+  }
+}
+
+export function getHeroHoKEndgameBuild(heroId: HeroClassId): string[] {
+  switch (heroId) {
+    case 'paladin':
+      return ['epic_windboots', 'arm_t4', 'leg_aegis', 'myth_immortal', 'leg_thunderfury', 'ex_paladin'];
+    case 'blademaster':
+      return ['epic_windboots', 'wep_t4', 'leg_bloodreaver', 'leg_thunderfury', 'myth_frostmourne', 'ex_blademaster'];
+    case 'archmage':
+      return ['epic_windboots', 'acc_t4', 'leg_wintersoul', 'leg_inferno', 'myth_apocalypse', 'ex_archmage'];
+    case 'ranger':
+      return ['epic_windboots', 'bow_t4', 'leg_starbow', 'leg_shadowcrossbow', 'myth_windrunner', 'ex_ranger'];
+    case 'priest':
+      return ['epic_windboots', 'sac_t4', 'leg_lifescepter', 'leg_druidicstaff', 'myth_elune', 'ex_priest'];
   }
 }
