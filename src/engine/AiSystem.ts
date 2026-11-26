@@ -20,10 +20,13 @@ import {
   addFloatingText,
   applyDamageToEnemy,
   applyDamageToHero,
+  canUpgradeSkill,
   castHeroSkill,
   distPointToSegment,
+  getEffectiveSkillManaCost,
   maybeTriggerOrbChain,
   performBasicAttack,
+  upgradeHeroSkill,
 } from './CombatSystem';
 import { buyItem, getQuickBuyOptions, synthesizeItem, upgradeItemInSlot, usePotionSlot } from './EconomySystem';
 import { EnemyAffix, EnemyEntity, GameWorldState, HeroEntity } from './GameState';
@@ -170,7 +173,7 @@ export function updateWaveDirector(
 export function applyDamageToSanctuary(world: GameWorldState, rawDmg: number, isSiege = false): void {
   if (world.ended || world.sanctuary.invulnTimer > 0) return;
   const armorMult = 100 / (100 + world.sanctuary.armor * 3);
-  const fortifiedMult = isSiege ? 1.0 : 0.72;
+  const fortifiedMult = isSiege ? 0.88 : 0.60;
   const dmg = Math.max(1, Math.round(rawDmg * armorMult * fortifiedMult));
 
   if (world.sanctuary.shield > 0) {
@@ -183,6 +186,46 @@ export function applyDamageToSanctuary(world: GameWorldState, rawDmg: number, is
   world.sanctuary.underAttackFlash = 0.35;
   world.cameraShake = Math.max(world.cameraShake, rawDmg > 120 ? 4.5 : 2.0);
   SoundFX.playAthenaWarn();
+
+  if (world.sanctuary.hp <= world.sanctuary.maxHp * 0.30 && world.sanctuary.autoAegisCd <= 0) {
+    world.sanctuary.hp = Math.max(world.sanctuary.hp, Math.round(world.sanctuary.maxHp * 0.28));
+    world.sanctuary.invulnTimer = Math.max(world.sanctuary.invulnTimer, 6.0);
+    world.sanctuary.autoAegisCd = 90.0;
+    const shockDmg = 240 + world.wave * 45;
+    const onKilled = (en: EnemyEntity, k?: HeroEntity) => handleEnemyDeathDrops(world, en, k);
+    const killer = world.heroes.find((h) => !h.dead) || world.heroes[0];
+    for (const e of world.enemies) {
+      if (e.zoneId !== 'sanctuary' || e.hp <= 0) continue;
+      const dx = e.x - ATHENA_POS.x;
+      const dy = e.y - ATHENA_POS.y;
+      const dist = Math.hypot(dx, dy) || 1;
+      if (dist <= 380 + e.radius) {
+        const pushed = resolveWorldCollision(
+          'sanctuary',
+          e.x + (dx / dist) * 95,
+          e.y + (dy / dist) * 95,
+          e.radius,
+          world.towers,
+          true
+        );
+        e.x = pushed.x;
+        e.y = pushed.y;
+        e.stunTimer = Math.max(e.stunTimer, e.isBoss ? 0.6 : 2.2);
+        applyDamageToEnemy(world, e, shockDmg, {
+          attacker: killer,
+          isMagic: true,
+          onEnemyKilled: onKilled,
+        });
+      }
+    }
+    world.vfx.push({ kind: 'explosion', x: ATHENA_POS.x, y: ATHENA_POS.y, radius: 380, color: '#fde047', life: 0.75, maxLife: 0.75 });
+    world.vfx.push({ kind: 'ring', x: ATHENA_POS.x, y: ATHENA_POS.y, radius: 380, color: '#fde047', life: 0.85, maxLife: 0.85 });
+    world.bannerText = '🛡️ 雅典娜危急！自动触发【圣光庇佑】6 秒无敌并震退敌军！';
+    world.bannerColor = '#fde047';
+    world.bannerTimer = 3.8;
+    SoundFX.playEventFanfare();
+    return;
+  }
 
   if (world.sanctuary.hp <= 0) {
     world.sanctuary.hp = 0;
@@ -965,6 +1008,39 @@ export function updateTelegraphsAndProjectiles(world: GameWorldState, dt: number
 export function updateTowersAndSummons(world: GameWorldState, dt: number): void {
   const onKilled = (enemy: EnemyEntity, killer?: HeroEntity) => handleEnemyDeathDrops(world, enemy, killer);
 
+  // Athena Built-in Holy Sentinel Bolt
+  if (world.sanctuary.hp > 0) {
+    world.sanctuary.attackTimer -= dt;
+    if (world.sanctuary.attackTimer <= 0) {
+      const target = findNearestEnemyInRange(world, 'sanctuary', ATHENA_POS.x, ATHENA_POS.y, 440);
+      if (target) {
+        const ang = Math.atan2(target.y - ATHENA_POS.y, target.x - ATHENA_POS.x);
+        world.sanctuary.attackTimer = 1.1;
+        world.projectiles.push({
+          id: world.nextEntityId++,
+          fromEnemy: false,
+          ownerId: world.heroes[0]?.id || 'athena',
+          zoneId: 'sanctuary',
+          x: ATHENA_POS.x + Math.cos(ang) * 28,
+          y: ATHENA_POS.y + Math.sin(ang) * 28,
+          vx: Math.cos(ang) * 740,
+          vy: Math.sin(ang) * 740,
+          radius: 10,
+          damage: 115 + world.wave * 24 + world.sanctuary.level * 48,
+          isMagic: true,
+          color: '#fde047',
+          pierceLeft: 0,
+          hitIds: [],
+          life: 0.72,
+          slowPct: 0.3,
+          aoeRadius: 90,
+        });
+      } else {
+        world.sanctuary.attackTimer = 0.25;
+      }
+    }
+  }
+
   for (const t of world.towers) {
     if (!t.type || t.level <= 0) continue;
     if (t.attackTimer > 0) t.attackTimer -= dt;
@@ -1085,6 +1161,32 @@ export function updateBotHeroes(world: GameWorldState, dt: number): void {
   for (const bot of world.heroes) {
     if (!bot.isBot || bot.dead) continue;
 
+    // Auto-spend skill points: prioritize Ult when available, then unlearned basics, then lowest rank
+    while (bot.skillPoints > 0) {
+      let chosen = -1;
+      if (canUpgradeSkill(bot, 3)) {
+        chosen = 3;
+      } else {
+        for (let s = 0; s < 3; s++) {
+          if ((bot.skillLevels[s] || 0) === 0 && canUpgradeSkill(bot, s)) {
+            chosen = s;
+            break;
+          }
+        }
+        if (chosen < 0) {
+          let bestLv = 99;
+          for (let s = 0; s < 3; s++) {
+            const lv = bot.skillLevels[s] || 0;
+            if (canUpgradeSkill(bot, s) && lv < bestLv) {
+              bestLv = lv;
+              chosen = s;
+            }
+          }
+        }
+      }
+      if (chosen < 0 || !upgradeHeroSkill(world, bot, chosen)) break;
+    }
+
     // Auto-use HP/MP potions
     if (bot.hp < bot.stats.maxHp * 0.42 && bot.potionCharges.hp > 0 && bot.potionCds.hp <= 0) {
       usePotionSlot(world, bot, 'hp');
@@ -1111,6 +1213,12 @@ export function updateBotHeroes(world: GameWorldState, dt: number): void {
       } else if (bot.aiMode === 'guard_base' && bot.zoneId !== 'sanctuary') {
         teleportHeroToZone(world, bot, 'sanctuary');
       }
+    }
+
+    if (bot.omnislashTimer > 0) {
+      bot.vx = 0;
+      bot.vy = 0;
+      continue;
     }
 
     if (bot.attackLockTimer > 0) {
@@ -1140,7 +1248,8 @@ export function updateBotHeroes(world: GameWorldState, dt: number): void {
       if (bot.castAnim <= 0) {
         for (let s = 3; s >= 0; s--) {
           const sk = def.skills[s];
-          if (bot.skillCds[s] <= 0 && bot.mp >= sk.manaCost && (!sk.unlockLevel || bot.level >= sk.unlockLevel)) {
+          const sRank = bot.skillLevels[s] || 0;
+          if (sRank > 0 && bot.skillCds[s] <= 0 && bot.mp >= getEffectiveSkillManaCost(sk, sRank)) {
             if (d <= sk.range + 40) {
               if (castHeroSkill(world, bot, s, dx / d, dy / d, Math.min(1, d / Math.max(1, sk.range)), onKilled)) {
                 bot.castAnim = 1.2;
@@ -1149,6 +1258,12 @@ export function updateBotHeroes(world: GameWorldState, dt: number): void {
             }
           }
         }
+      }
+
+      if (bot.omnislashTimer > 0) {
+        bot.vx = 0;
+        bot.vy = 0;
+        continue;
       }
 
       if (bot.attackLockTimer > 0) {

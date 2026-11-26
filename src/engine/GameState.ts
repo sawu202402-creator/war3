@@ -92,6 +92,8 @@ export interface HeroEntity {
   pinnedRecipeId: string | null;
 
   // Combat & States
+  skillLevels: [number, number, number, number]; // 0 = unlearned; basic 1..5, ult 1..3
+  skillPoints: number;
   skillCds: [number, number, number, number];
   flashCd: number;
   recallTimer: number; // >0 means channeling recall
@@ -399,6 +401,9 @@ export interface GameWorldState {
     invulnTimer: number;
     invulnCd: number;
     underAttackFlash: number;
+    attackTimer: number;
+    autoAegisCd: number;
+    deathWardCd: number;
   };
 
   trainingTiers: {

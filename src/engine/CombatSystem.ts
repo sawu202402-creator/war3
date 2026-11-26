@@ -4,7 +4,7 @@ import { getItemDef, SET_BONUSES } from '../data/items';
 import { ATHENA_POS, FOUNTAIN_POS, HERO_COLLISION_RADIUS, ZONES, resolveLinearDash, resolveWorldCollision } from '../data/worldMap';
 import { SoundFX } from '../audio/SoundFX';
 import { SaveManager } from '../meta/SaveManager';
-import { StatBlock } from '../types';
+import { SkillDef, StatBlock } from '../types';
 import { EnemyEntity, GameWorldState, HeroEntity } from './GameState';
 
 const STATIONARY_CAST_SKILLS = new Set([
@@ -25,6 +25,78 @@ export function getHeroAttackLockDuration(hero: HeroEntity): number {
 
 export function xpForLevel(level: number): number {
   return Math.round(130 + Math.pow(level, 1.55) * 85);
+}
+
+export const MAX_TOTAL_SKILL_POINTS = 18;
+
+export function getSkillMaxLevel(sk: SkillDef): number {
+  return sk.isUlt ? 3 : 5;
+}
+
+export function getSkillRequiredHeroLevel(sk: SkillDef, nextRank: number): number {
+  if (sk.isUlt) {
+    return (sk.unlockLevel || 6) + Math.max(0, nextRank - 1) * 5;
+  }
+  return 1 + Math.max(0, nextRank - 1) * 2;
+}
+
+export function canUpgradeSkill(hero: HeroEntity, slot: number): boolean {
+  if (hero.skillPoints <= 0 || slot < 0 || slot >= 4) return false;
+  const sk = getHeroClassDef(hero.classId).skills[slot];
+  if (!sk) return false;
+  const cur = hero.skillLevels[slot] || 0;
+  if (cur >= getSkillMaxLevel(sk)) return false;
+  return hero.level >= getSkillRequiredHeroLevel(sk, cur + 1);
+}
+
+export function getEffectiveSkillCooldown(hero: HeroEntity, sk: SkillDef, rank: number): number {
+  const effRank = Math.max(1, rank);
+  const rankCdFactor = Math.max(0.68, 1 - (effRank - 1) * (sk.isUlt ? 0.12 : 0.07));
+  return Math.max(1.2, sk.cooldown * rankCdFactor * (1 - hero.stats.cdr));
+}
+
+export function getEffectiveSkillManaCost(sk: SkillDef, rank: number): number {
+  const effRank = Math.max(1, rank);
+  return Math.round(sk.manaCost * (1 + (effRank - 1) * 0.08));
+}
+
+export function getScaledSkillDamage(hero: HeroEntity, sk: SkillDef, rank: number): number {
+  const effRank = Math.max(1, rank);
+  const rankMult = sk.isUlt ? 0.7 + effRank * 0.3 : 0.78 + effRank * 0.22;
+  const raw =
+    sk.damageBase +
+    (effRank - 1) * sk.damagePerLv * 1.4 +
+    (hero.level - 1) * sk.damagePerLv * 0.55 +
+    hero.stats.ad * sk.adScale +
+    hero.stats.ap * sk.apScale;
+  return raw * rankMult;
+}
+
+export function upgradeHeroSkill(world: GameWorldState, hero: HeroEntity, slot: number): boolean {
+  if (!canUpgradeSkill(hero, slot)) return false;
+  const sk = getHeroClassDef(hero.classId).skills[slot];
+  const newRank = (hero.skillLevels[slot] || 0) + 1;
+  hero.skillLevels[slot] = newRank;
+  hero.skillPoints = Math.max(0, hero.skillPoints - 1);
+  world.vfx.push({
+    kind: 'ring',
+    x: hero.x,
+    y: hero.y,
+    radius: 48,
+    color: '#fde047',
+    life: 0.45,
+    maxLife: 0.45,
+  });
+  addFloatingText(
+    world,
+    hero.x,
+    hero.y - 38,
+    newRank === 1 ? `学习【${sk.name}】!` : `${sk.name} Lv.${newRank}!`,
+    '#fde047',
+    14
+  );
+  if (hero.isLocal) SoundFX.playHolyChime();
+  return true;
 }
 
 export function recalcHeroStats(hero: HeroEntity): void {
@@ -252,11 +324,21 @@ export function grantHeroXp(world: GameWorldState, hero: HeroEntity, amount: num
   hero.xp += Math.round(amount * mult);
 
   let leveled = false;
+  let ptsEarned = 0;
   while (hero.xp >= hero.nextXp && hero.level < 40) {
     hero.xp -= hero.nextXp;
     hero.level += 1;
     hero.nextXp = xpForLevel(hero.level);
     leveled = true;
+    const spent =
+      (hero.skillLevels[0] || 0) +
+      (hero.skillLevels[1] || 0) +
+      (hero.skillLevels[2] || 0) +
+      (hero.skillLevels[3] || 0);
+    if (spent + hero.skillPoints < MAX_TOTAL_SKILL_POINTS) {
+      hero.skillPoints += 1;
+      ptsEarned += 1;
+    }
   }
   if (leveled) {
     recalcHeroStats(hero);
@@ -271,7 +353,14 @@ export function grantHeroXp(world: GameWorldState, hero: HeroEntity, amount: num
       life: 0.9,
       maxLife: 0.9,
     });
-    addFloatingText(world, hero.x, hero.y - 42, `升级 Lv.${hero.level}!`, '#fde047', 16);
+    addFloatingText(
+      world,
+      hero.x,
+      hero.y - 42,
+      ptsEarned > 0 ? `升级 Lv.${hero.level}! (+${ptsEarned} 技能点)` : `升级 Lv.${hero.level}!`,
+      '#fde047',
+      16
+    );
     if (hero.isLocal) SoundFX.playLevelUp();
 
     if (hero.level >= 15 && !hero.awakeningUnlocked && hero.exclusiveUnlocked && !hero.awakeningPrompted) {
@@ -480,9 +569,15 @@ export function applyDamageToHero(world: GameWorldState, hero: HeroEntity, rawDm
 
     hero.hp = 0;
     hero.dead = true;
+    hero.omnislashTimer = 0;
+    hero.omnislashTicksLeft = 0;
+    hero.bladestormTimer = 0;
+    hero.attackLockTimer = 0;
+    hero.stunTimer = 0;
     const save = SaveManager.get();
-    const baseRevive = Math.min(24, 8 + world.wave * 0.65);
-    const reviveTime = Math.max(4, baseRevive - save.talents.reviveFast * 1.2);
+    const baseRevive = Math.min(12, 5 + world.wave * 0.35);
+    const soloFactor = world.heroes.length === 1 ? 0.85 : 1.0;
+    const reviveTime = Math.max(3, (baseRevive - save.talents.reviveFast * 1.0) * soloFactor);
     hero.reviveTimer = reviveTime;
     hero.reviveMax = reviveTime;
     hero.downedX = hero.x;
@@ -490,6 +585,49 @@ export function applyDamageToHero(world: GameWorldState, hero: HeroEntity, rawDm
     hero.reviveAssistProgress = 0;
     hero.carryingWater = false;
     addFloatingText(world, hero.x, hero.y - 24, '英雄阵亡!', '#ef4444', 15);
+
+    // Hero-Fallen Sanctuary Ward: buy time when every defender falls
+    if (!world.heroes.some((h) => !h.dead) && world.sanctuary.deathWardCd <= 0 && world.sanctuary.hp > 0) {
+      world.sanctuary.deathWardCd = 25.0;
+      const wardShield = Math.round(world.sanctuary.maxHp * 0.22);
+      world.sanctuary.shield = Math.min(
+        Math.round(world.sanctuary.maxHp * 0.45),
+        world.sanctuary.shield + wardShield
+      );
+      for (const e of world.enemies) {
+        if (e.zoneId !== 'sanctuary' || e.hp <= 0) continue;
+        const dx = e.x - ATHENA_POS.x;
+        const dy = e.y - ATHENA_POS.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        if (dist <= 260 + e.radius) {
+          e.stunTimer = Math.max(e.stunTimer, e.isBoss ? 0.45 : 1.6);
+          const pushed = resolveWorldCollision(
+            'sanctuary',
+            e.x + (dx / dist) * 65,
+            e.y + (dy / dist) * 65,
+            e.radius,
+            world.towers,
+            true
+          );
+          e.x = pushed.x;
+          e.y = pushed.y;
+        }
+      }
+      world.vfx.push({
+        kind: 'ring',
+        x: ATHENA_POS.x,
+        y: ATHENA_POS.y,
+        radius: 260,
+        color: '#fde047',
+        life: 0.75,
+        maxLife: 0.75,
+      });
+      addFloatingText(world, ATHENA_POS.x, ATHENA_POS.y - 68, '护殿圣盾激发!', '#fde047', 16);
+      world.bannerText = '🛡️ 英雄阵亡！雅典娜激发【护殿圣盾】并震退近敌，守候复活！';
+      world.bannerColor = '#fde047';
+      world.bannerTimer = 3.2;
+      SoundFX.playHolyChime();
+    }
   }
 }
 
@@ -577,7 +715,8 @@ export function performBasicAttack(
     const range = hero.stats.attackRange + 16;
     const isBmThirdCombo = hero.classId === 'blademaster' && hero.attackCombo === 0;
     const forceCrit = isStealthBreak || isBmThirdCombo;
-    const mult = isStealthBreak ? 2.15 : isBmThirdCombo ? 2.0 : 1.0;
+    const stealthMult = 1.85 + Math.max(1, hero.skillLevels[0] || 0) * 0.15;
+    const mult = isStealthBreak ? stealthMult : isBmThirdCombo ? 2.0 : 1.0;
     const cleaveRatio = hero.stats.cleave || 0;
 
     let primary: EnemyEntity | null = null;
@@ -720,18 +859,34 @@ export function castHeroSkill(
   const def = getHeroClassDef(hero.classId);
   const sk = def.skills[slot];
   if (!sk) return false;
-  if (sk.unlockLevel && hero.level < sk.unlockLevel) {
-    if (hero.isLocal) addFloatingText(world, hero.x, hero.y - 30, `需要 Lv.${sk.unlockLevel} 解锁大招`, '#f87171', 13);
+  const rank = hero.skillLevels[slot] || 0;
+  if (rank <= 0) {
+    if (canUpgradeSkill(hero, slot)) {
+      upgradeHeroSkill(world, hero, slot);
+      return false;
+    }
+    const reqLv = getSkillRequiredHeroLevel(sk, 1);
+    if (hero.isLocal) {
+      addFloatingText(
+        world,
+        hero.x,
+        hero.y - 30,
+        hero.level < reqLv ? `需要 Lv.${reqLv} 学习【${sk.name}】` : `尚未学习【${sk.name}】（升级获取技能点）`,
+        '#f87171',
+        13
+      );
+    }
     return false;
   }
   if (hero.skillCds[slot] > 0) return false;
-  if (hero.mp < sk.manaCost) {
+  const manaCost = getEffectiveSkillManaCost(sk, rank);
+  if (hero.mp < manaCost) {
     if (hero.isLocal) addFloatingText(world, hero.x, hero.y - 30, '法力不足!', '#38bdf8', 13);
     return false;
   }
 
-  hero.mp -= sk.manaCost;
-  hero.skillCds[slot] = Math.max(1.2, sk.cooldown * (1 - hero.stats.cdr));
+  hero.mp -= manaCost;
+  hero.skillCds[slot] = getEffectiveSkillCooldown(hero, sk, rank);
   hero.recallTimer = 0;
   hero.castAnim = 0.42;
   hero.swingDuration = 0.42;
@@ -764,11 +919,7 @@ export function castHeroSkill(
     world.cameraShake = Math.max(world.cameraShake, 5.5);
   }
 
-  const skillDmg =
-    sk.damageBase +
-    (hero.level - 1) * sk.damagePerLv +
-    hero.stats.ad * sk.adScale +
-    hero.stats.ap * sk.apScale;
+  const skillDmg = getScaledSkillDamage(hero, sk, rank);
 
   const targetX = hero.x + nx * Math.min(sk.range, Math.max(60, sk.range * Math.max(0.45, distRatio)));
   const targetY = hero.y + ny * Math.min(sk.range, Math.max(60, sk.range * Math.max(0.45, distRatio)));
@@ -798,7 +949,7 @@ export function castHeroSkill(
       return true;
     }
     case 'pal_consecrate': {
-      hero.consecrateTimer = 5.0;
+      hero.consecrateTimer = 4.5 + rank * 0.5;
       world.vfx.push({ kind: 'ring', x: hero.x, y: hero.y, radius: sk.radius, color: '#fde047', life: 0.65, maxLife: 0.65 });
       if (hero.isLocal) SoundFX.playHolyChime();
       return true;
@@ -820,7 +971,7 @@ export function castHeroSkill(
       return true;
     }
     case 'pal_avatar': {
-      hero.avatarTimer = 10.0;
+      hero.avatarTimer = 9.0 + rank * 1.5;
       hero.stunTimer = 0;
       recalcHeroStats(hero);
       hero.hp = Math.min(hero.stats.maxHp, hero.hp + hero.stats.maxHp * 0.35);
@@ -837,14 +988,14 @@ export function castHeroSkill(
 
     // BLADEMASTER
     case 'bm_windwalk': {
-      hero.stealthTimer = 4.0;
+      hero.stealthTimer = 3.5 + rank * 0.4;
       recalcHeroStats(hero);
       world.vfx.push({ kind: 'ring', x: hero.x, y: hero.y, radius: 65, color: '#f43f5e', life: 0.35, maxLife: 0.35 });
       if (hero.isLocal) SoundFX.playTeleport();
       return true;
     }
     case 'bm_bladestorm': {
-      hero.bladestormTimer = 4.0;
+      hero.bladestormTimer = 3.6 + rank * 0.35;
       hero.stunTimer = 0;
       if (hero.isLocal) SoundFX.playSwordSlash();
       return true;
@@ -853,7 +1004,7 @@ export function castHeroSkill(
       hero.stunTimer = 0;
       const count = hero.awakeningBranchId === 'bm_phantom' ? 3 : 2;
       const inherit = hero.awakeningBranchId === 'bm_phantom' ? 0.65 : 0.45;
-      const sumBoost = 1 + (hero.stats.summonPower || 0);
+      const sumBoost = (1 + (hero.stats.summonPower || 0)) * (1 + (rank - 1) * 0.16);
       for (let i = 0; i < count; i++) {
         const ang = (Math.PI * 2 * i) / count;
         const p = resolveWorldCollision(hero.zoneId, hero.x + Math.cos(ang) * 55, hero.y + Math.sin(ang) * 55, 18, world.towers, false);
@@ -883,10 +1034,13 @@ export function castHeroSkill(
       return true;
     }
     case 'bm_omnislash': {
-      hero.omnislashTimer = 1.6;
+      const ticks = (hero.awakeningBranchId === 'bm_phantom' ? 9 : 6) + Math.min(3, rank);
+      hero.omnislashTicksLeft = ticks;
+      hero.omnislashTimer = ticks * 0.18 + 0.08;
       hero.omnislashTargetX = targetX;
       hero.omnislashTargetY = targetY;
-      hero.omnislashTicksLeft = hero.awakeningBranchId === 'bm_phantom' ? 10 : 7;
+      hero.attackLockTimer = 0;
+      hero.stunTimer = 0;
       if (hero.isLocal) SoundFX.playCritHit();
       return true;
     }
@@ -1027,7 +1181,7 @@ export function castHeroSkill(
       return true;
     }
     case 'rng_hawkeye': {
-      hero.hawkeyeTimer = 6.0;
+      hero.hawkeyeTimer = 5.5 + rank * 0.6;
       recalcHeroStats(hero);
       world.vfx.push({ kind: 'ring', x: hero.x, y: hero.y, radius: 85, color: '#a3e635', life: 0.45, maxLife: 0.45 });
       if (hero.isLocal) SoundFX.playMagicCast();
@@ -1063,6 +1217,11 @@ export function castHeroSkill(
         if (ally.zoneId === hero.zoneId && Math.hypot(ally.x - targetX, ally.y - targetY) <= sk.radius + 90) {
           if (ally.dead && hero.awakeningBranchId === 'pr_lifemaiden') {
             ally.dead = false;
+            ally.omnislashTimer = 0;
+            ally.omnislashTicksLeft = 0;
+            ally.bladestormTimer = 0;
+            ally.attackLockTimer = 0;
+            ally.stunTimer = 0;
             ally.hp = ally.stats.maxHp * 0.6;
             ally.mp = ally.stats.maxMp * 0.5;
             addFloatingText(world, ally.x, ally.y - 36, '圣光复活!', '#4ade80', 15);
@@ -1094,7 +1253,7 @@ export function castHeroSkill(
     case 'pr_treant': {
       const count = hero.awakeningBranchId === 'pr_druid' ? 3 : 2;
       const dur = hero.awakeningBranchId === 'pr_druid' ? 32 : 22;
-      const mult = (hero.awakeningBranchId === 'pr_druid' ? 1.65 : 1.0) * (1 + (hero.stats.summonPower || 0));
+      const mult = (hero.awakeningBranchId === 'pr_druid' ? 1.65 : 1.0) * (1 + (hero.stats.summonPower || 0)) * (1 + (rank - 1) * 0.18);
       for (let i = 0; i < count; i++) {
         const ang = (Math.PI * 2 * i) / count;
         const p = resolveWorldCollision(hero.zoneId, targetX + Math.cos(ang) * 44, targetY + Math.sin(ang) * 44, 24, world.towers, false);
@@ -1126,7 +1285,7 @@ export function castHeroSkill(
     case 'pr_warsong': {
       for (const ally of world.heroes) {
         if (!ally.dead && ally.zoneId === hero.zoneId && Math.hypot(ally.x - hero.x, ally.y - hero.y) <= sk.radius) {
-          ally.warsongTimer = 7.0;
+          ally.warsongTimer = 6.5 + rank * 0.6;
           recalcHeroStats(ally);
           addFloatingText(world, ally.x, ally.y - 32, '战歌祝福!', '#c084fc', 14);
         }
@@ -1136,6 +1295,7 @@ export function castHeroSkill(
       return true;
     }
     case 'pr_sanctuary': {
+      const dur = 5.5 + rank * 0.6;
       world.telegraphs.push({
         id: world.nextEntityId++,
         fromEnemy: false,
@@ -1145,8 +1305,8 @@ export function castHeroSkill(
         x: targetX,
         y: targetY,
         radius: sk.radius,
-        timer: 6.0,
-        maxTimer: 6.0,
+        timer: dur,
+        maxTimer: dur,
         tickTimer: 0.05,
         damage: skillDmg * 0.5,
         healPerSec: (hero.stats.ap * 0.85 + 140) * (1 + (hero.stats.healPower || 0)),

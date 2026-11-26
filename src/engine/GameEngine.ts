@@ -46,9 +46,11 @@ import {
   castFlashSkill,
   castHeroSkill,
   getHeroAttackLockDuration,
+  getScaledSkillDamage,
   performBasicAttack,
   recalcHeroStats,
   startRecall,
+  upgradeHeroSkill,
   xpForLevel,
 } from './CombatSystem';
 import {
@@ -127,6 +129,7 @@ export class GameEngine {
   ) {
     this.input.bindActions({
       onCastSkill: (slot, dirX, dirY, distRatio) => this.handleCastSkillInput(slot, dirX, dirY, distRatio),
+      onUpgradeSkill: (slot) => this.handleUpgradeSkillInput(slot),
       onUsePotion: (slot) => this.handleUsePotionInput(slot),
       onFlash: (dirX, dirY) => this.handleFlashInput(dirX, dirY),
       onRecall: () => this.handleRecallInput(),
@@ -177,7 +180,7 @@ export class GameEngine {
     const isCoop = Boolean(opts.coopRoster && opts.coopRoster.length > 0);
     const playersCount = isCoop ? opts.coopRoster!.length : 1 + opts.aiSquadCount;
 
-    const baseSanctuaryHp = Math.round(5000 * (1 + save.talents.reviveFast * 0.08) * (1 + (playersCount - 1) * 0.16));
+    const baseSanctuaryHp = Math.round(8500 * (1 + save.talents.reviveFast * 0.08) * (1 + (playersCount - 1) * 0.16));
     const heroes: HeroEntity[] = [];
 
     if (isCoop && opts.coopRoster) {
@@ -237,13 +240,16 @@ export class GameEngine {
       sanctuary: {
         hp: baseSanctuaryHp,
         maxHp: baseSanctuaryHp,
-        armor: 11,
-        hpRegen: 4.5,
+        armor: 18,
+        hpRegen: 16,
         shield: 0,
         level: 1,
         invulnTimer: 0,
         invulnCd: 0,
         underAttackFlash: 0,
+        attackTimer: 0.6,
+        autoAegisCd: 0,
+        deathWardCd: 0,
       },
       trainingTiers: { gold_room: 1, xp_room: 1, crystal_room: 1 },
       trainingSpawnTimer: { gold_room: 0.4, xp_room: 0.4, crystal_room: 0.4, stone_mine: 0.8 },
@@ -399,6 +405,8 @@ export class GameEngine {
       inventory: [null, null, null, null, null, null],
       stash: [null, null, null, null, null, null],
       pinnedRecipeId: null,
+      skillLevels: [0, 0, 0, 0],
+      skillPoints: 1,
       skillCds: [0, 0, 0, 0],
       flashCd: 0,
       recallTimer: 0,
@@ -494,6 +502,8 @@ export class GameEngine {
     // Sanctuary timers & regen
     if (world.sanctuary.invulnTimer > 0) world.sanctuary.invulnTimer -= dt;
     if (world.sanctuary.invulnCd > 0) world.sanctuary.invulnCd -= dt;
+    if (world.sanctuary.autoAegisCd > 0) world.sanctuary.autoAegisCd = Math.max(0, world.sanctuary.autoAegisCd - dt);
+    if (world.sanctuary.deathWardCd > 0) world.sanctuary.deathWardCd = Math.max(0, world.sanctuary.deathWardCd - dt);
     if (world.sanctuary.underAttackFlash > 0) world.sanctuary.underAttackFlash -= dt;
     if (!isClient && world.sanctuary.hp > 0) {
       world.sanctuary.hp = Math.min(world.sanctuary.maxHp, world.sanctuary.hp + world.sanctuary.hpRegen * dt);
@@ -632,6 +642,11 @@ export class GameEngine {
           if (h.reviveTimer <= 0) {
             if (helper) helper.revives += 1;
             h.dead = false;
+            h.omnislashTimer = 0;
+            h.omnislashTicksLeft = 0;
+            h.bladestormTimer = 0;
+            h.attackLockTimer = 0;
+            h.stunTimer = 0;
             h.zoneId = 'sanctuary';
             const revPos = resolveWorldCollision(
               'sanctuary',
@@ -721,7 +736,8 @@ export class GameEngine {
         h.consecrateTimer -= dt;
         if (Math.floor(h.consecrateTimer * 2) !== prev) {
           const mult = h.awakeningBranchId === 'pal_retribution' ? 1.55 : 1.0;
-          const dmg = (28 + h.level * 13 + h.stats.ap * 0.34 + h.stats.ad * 0.2) * mult;
+          const cRank = Math.max(1, h.skillLevels[1] || 0);
+          const dmg = (28 + h.level * 13 + h.stats.ap * 0.34 + h.stats.ad * 0.2) * mult * (0.78 + cRank * 0.22);
           for (const e of world.enemies) {
             if (e.zoneId === h.zoneId && e.hp > 0 && Math.hypot(e.x - h.x, e.y - h.y) <= 240) {
               if (!e.isBoss) {
@@ -739,7 +755,8 @@ export class GameEngine {
         const prev = Math.floor(h.bladestormTimer * 3);
         h.bladestormTimer -= dt;
         if (Math.floor(h.bladestormTimer * 3) !== prev) {
-          const dmg = 34 + h.level * 15 + h.stats.ad * 0.48;
+          const bRank = Math.max(1, h.skillLevels[1] || 0);
+          const dmg = (34 + h.level * 15 + h.stats.ad * 0.48) * (0.78 + bRank * 0.22);
           for (const e of world.enemies) {
             if (e.zoneId === h.zoneId && e.hp > 0 && Math.hypot(e.x - h.x, e.y - h.y) <= 215 + e.radius) {
               applyDamageToEnemy(world, e, dmg, {
@@ -753,33 +770,62 @@ export class GameEngine {
         }
       }
 
-      // Blademaster Omnislash ticks
-      if (h.omnislashTimer > 0 && h.omnislashTicksLeft > 0) {
-        const prev = Math.floor(h.omnislashTimer * 5.5);
-        h.omnislashTimer -= dt;
-        if (Math.floor(h.omnislashTimer * 5.5) !== prev) {
-          h.omnislashTicksLeft -= 1;
-          const target = world.enemies.find(
-            (e) =>
-              e.zoneId === h.zoneId &&
-              e.hp > 0 &&
-              Math.hypot(e.x - h.omnislashTargetX, e.y - h.omnislashTargetY) <= 280
-          );
-          if (target) {
-            const oPos = resolveWorldCollision(
-              h.zoneId,
-              target.x + (Math.random() - 0.5) * 30,
-              target.y + (Math.random() - 0.5) * 30,
-              HERO_COLLISION_RADIUS,
-              world.towers,
-              false
-            );
-            h.x = oPos.x;
-            h.y = oPos.y;
-            h.teleportSeq = (h.teleportSeq || 0) + 1;
-            const dmg = 165 + h.level * 68 + h.stats.ad * 1.15;
-            applyDamageToEnemy(world, target, dmg, { attacker: h, forceCrit: true, onEnemyKilled: onKilled });
-            world.vfx.push({ kind: 'slash', x: target.x, y: target.y, angle: Math.random() * Math.PI * 2, radius: 95, color: '#fb7185', life: 0.2, maxLife: 0.2 });
+      // Blademaster Omnislash ticks (always drains timer and exits cleanly when out of ticks or targets)
+      if (h.omnislashTimer > 0) {
+        if (h.omnislashTicksLeft <= 0) {
+          h.omnislashTimer = 0;
+          h.attackLockTimer = 0;
+        } else {
+          const prev = Math.floor(h.omnislashTimer * 5.5);
+          h.omnislashTimer = Math.max(0, h.omnislashTimer - dt);
+          if (Math.floor(h.omnislashTimer * 5.5) !== prev) {
+            h.omnislashTicksLeft -= 1;
+            const target =
+              world.enemies.find(
+                (e) =>
+                  e.zoneId === h.zoneId &&
+                  e.hp > 0 &&
+                  Math.hypot(e.x - h.omnislashTargetX, e.y - h.omnislashTargetY) <= 300
+              ) ||
+              world.enemies.find(
+                (e) => e.zoneId === h.zoneId && e.hp > 0 && Math.hypot(e.x - h.x, e.y - h.y) <= 340
+              );
+            if (target) {
+              h.omnislashTargetX = target.x;
+              h.omnislashTargetY = target.y;
+              const oPos = resolveWorldCollision(
+                h.zoneId,
+                target.x + (Math.random() - 0.5) * 30,
+                target.y + (Math.random() - 0.5) * 30,
+                HERO_COLLISION_RADIUS,
+                world.towers,
+                false
+              );
+              h.x = oPos.x;
+              h.y = oPos.y;
+              h.teleportSeq = (h.teleportSeq || 0) + 1;
+              const ultDef = getHeroClassDef(h.classId).skills[3];
+              const dmg = getScaledSkillDamage(h, ultDef, Math.max(1, h.skillLevels[3] || 0));
+              applyDamageToEnemy(world, target, dmg, { attacker: h, forceCrit: true, onEnemyKilled: onKilled });
+              world.vfx.push({
+                kind: 'slash',
+                x: target.x,
+                y: target.y,
+                angle: Math.random() * Math.PI * 2,
+                radius: 95,
+                color: '#fb7185',
+                life: 0.2,
+                maxLife: 0.2,
+              });
+              if (h.omnislashTicksLeft <= 0) {
+                h.omnislashTimer = 0;
+                h.attackLockTimer = 0;
+              }
+            } else {
+              h.omnislashTicksLeft = 0;
+              h.omnislashTimer = 0;
+              h.attackLockTimer = 0;
+            }
           }
         }
       }
@@ -1036,6 +1082,17 @@ export class GameEngine {
       return;
     }
     castHeroSkill(this.world, local, slot, dx, dy, ratio, (e, k) => handleEnemyDeathDrops(this.world!, e, k));
+  }
+
+  public handleUpgradeSkillInput(slot: number): boolean {
+    if (!this.world || this.paused) return false;
+    const local = this.getLocalHero();
+    if (!local) return false;
+    if (CoopManager.isActiveCoop() && CoopManager.role === 'client') {
+      CoopManager.sendToHost({ type: 'cmd_upgrade_skill', ownerId: local.id, slot });
+      return true;
+    }
+    return upgradeHeroSkill(this.world, local, slot);
   }
 
   public handleFlashInput(dirX?: number, dirY?: number): void {
@@ -1570,6 +1627,7 @@ export class GameEngine {
       );
       h.level = Math.max(1, avgLv - 1);
       h.nextXp = xpForLevel(h.level);
+      h.skillPoints = Math.min(18, h.level);
       h.gold = Math.max(h.gold, Math.round(avgGold * 0.75 + Math.max(0, world.wave - 1) * 140));
       h.crystal = Math.max(h.crystal, Math.floor(world.wave / 4));
       recalcHeroStats(h);
@@ -1653,6 +1711,8 @@ export class GameEngine {
       h.revives,
       Math.round(h.xp),
       h.sanctuaryAuraTier,
+      [h.skillLevels[0], h.skillLevels[1], h.skillLevels[2], h.skillLevels[3]],
+      h.skillPoints,
     ];
   }
 
@@ -1938,6 +1998,9 @@ export class GameEngine {
       } else if (msg.type === 'cmd_skill') {
         castHeroSkill(world, actor, msg.slot, msg.dirX, msg.dirY, msg.distRatio, onKilled);
         this.hostEconDirty = true;
+      } else if (msg.type === 'cmd_upgrade_skill') {
+        upgradeHeroSkill(world, actor, msg.slot);
+        this.hostEconDirty = true;
       } else if (msg.type === 'cmd_flash') {
         castFlashSkill(world, actor, msg.dirX, msg.dirY);
         this.hostEconDirty = true;
@@ -2095,25 +2158,30 @@ export class GameEngine {
       if (msg.econs) {
         let localUiChanged = false;
         for (const et of msg.econs) {
-          const [id, lv, gold, crystal, stones, kills, tpSeq, inv, stash, cds, flashCd, pots, awakenId, comboC, comboT, moveSpd, waterDone, exLv, dmgDealt, revives, xpVal, auraTier] = et;
+          const [id, lv, gold, crystal, stones, kills, tpSeq, inv, stash, cds, flashCd, pots, awakenId, comboC, comboT, moveSpd, waterDone, exLv, dmgDealt, revives, xpVal, auraTier, skillLvs, skillPts] = et;
           const h = world.heroes.find((xh) => xh.id === id);
           if (!h) continue;
 
           const invChanged =
             h.inventory.some((x, idx) => x !== inv[idx]) || h.stash.some((x, idx) => x !== stash[idx]);
+          const skillChanged =
+            (skillLvs && h.skillLevels.some((lv0, idx) => lv0 !== skillLvs[idx])) ||
+            (skillPts !== undefined && h.skillPoints !== skillPts);
           const statDirty =
             invChanged ||
             h.level !== lv ||
             h.awakeningBranchId !== awakenId ||
             h.sanctuaryAuraTier !== auraTier ||
             h.exclusiveLevel !== exLv;
-          if (h.isLocal && (invChanged || h.gold !== gold || h.crystal !== crystal || h.stones !== stones || h.waterDeliveriesDone !== waterDone)) {
+          if (h.isLocal && (invChanged || skillChanged || h.gold !== gold || h.crystal !== crystal || h.stones !== stones || h.waterDeliveriesDone !== waterDone)) {
             localUiChanged = true;
           }
 
           h.level = lv;
           h.xp = xpVal;
           h.nextXp = xpForLevel(lv);
+          if (skillLvs) h.skillLevels = [skillLvs[0] || 0, skillLvs[1] || 0, skillLvs[2] || 0, skillLvs[3] || 0];
+          if (skillPts !== undefined) h.skillPoints = skillPts;
           h.gold = gold;
           h.crystal = crystal;
           h.stones = stones;

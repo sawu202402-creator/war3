@@ -867,10 +867,10 @@ export function upgradeSanctuary(world: GameWorldState, hero: HeroEntity): boole
   hero.gold -= goldCost;
   hero.crystal -= crysCost;
   world.sanctuary.level += 1;
-  world.sanctuary.maxHp += 1800;
-  world.sanctuary.hp = Math.min(world.sanctuary.maxHp, world.sanctuary.hp + 2000);
-  world.sanctuary.armor += 4;
-  world.sanctuary.hpRegen += 9;
+  world.sanctuary.maxHp += 2600;
+  world.sanctuary.hp = Math.min(world.sanctuary.maxHp, world.sanctuary.hp + 2800);
+  world.sanctuary.armor += 5;
+  world.sanctuary.hpRegen += 14;
   const newTier = world.sanctuary.level >= 10 ? 2 : world.sanctuary.level >= 5 ? 1 : 0;
   let unlockedAura = false;
   if (newTier > 0) {

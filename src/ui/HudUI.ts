@@ -1,6 +1,14 @@
 import { getHeroClassDef } from '../data/heroes';
 import { RARITY_META, getItemDef } from '../data/items';
 import { WORLD_HEIGHT, WORLD_WIDTH, ZONES } from '../data/worldMap';
+import {
+  canUpgradeSkill,
+  getEffectiveSkillCooldown,
+  getEffectiveSkillManaCost,
+  getScaledSkillDamage,
+  getSkillMaxLevel,
+  getSkillRequiredHeroLevel,
+} from '../engine/CombatSystem';
 import { getQuickBuyOptions } from '../engine/EconomySystem';
 import { GameEngine } from '../engine/GameEngine';
 import { IconAtlas } from '../engine/IconAtlas';
@@ -88,7 +96,10 @@ export class HudUI {
             </span>
           </div>
           <div class="hud-banner war3-stone-panel" id="hud-banner"></div>
-          <button class="war3-btn war3-btn-red hud-urgent-defend" id="btn-urgent-defend" type="button" style="display:none;">🚨 圣殿遇袭 · 一键回防</button>
+          <div class="hud-urgent-row">
+            <button class="war3-btn war3-btn-red hud-urgent-defend" id="btn-urgent-defend" type="button" style="display:none;">🚨 圣殿遇袭 · 一键回防</button>
+            <button class="war3-btn war3-btn-gold hud-urgent-invuln" id="btn-urgent-invuln" type="button" style="display:none;">🛡️ 圣殿无敌(15s)</button>
+          </div>
         </div>
 
         <div class="hud-right-col">
@@ -137,13 +148,19 @@ export class HudUI {
           <span class="hok-atk-auto-tag">自动</span>
         </button>
 
+        <div class="hud-skill-pts-pill hok-pts-pill" id="hok-skill-pts-pill" style="display:none;">✨ 技能点 +1</div>
+
         ${[0, 1, 2, 3]
           .map(
             (s) => `
-          <button class="hok-skill-btn hok-s${s}" id="hok-skill-${s}" type="button">
-            <img id="hok-skill-img-${s}" src="" alt="" />
-            <div class="hok-skill-cd" id="hok-skill-cd-${s}" style="display:none;--cd-pct:0%;"></div>
-          </button>`
+          <div class="hok-skill-wrap hok-s${s}">
+            <button class="skill-up-btn hok-skill-up" id="hok-skill-up-${s}" type="button" style="display:none;" title="学习/升级技能">+</button>
+            <button class="hok-skill-btn" id="hok-skill-${s}" type="button">
+              <img id="hok-skill-img-${s}" src="" alt="" />
+              <div class="hok-skill-cd" id="hok-skill-cd-${s}" style="display:none;--cd-pct:0%;"></div>
+            </button>
+            <div class="skill-pip-bar" id="hok-skill-pips-${s}"></div>
+          </div>`
           )
           .join('')}
 
@@ -216,14 +233,19 @@ export class HudUI {
         </div>
 
         <div class="pc-skills-row">
+          <div class="hud-skill-pts-pill pc-pts-pill" id="pc-skill-pts-pill" style="display:none;">✨ 技能点 +1</div>
           ${[0, 1, 2, 3]
             .map(
               (s, idx) => `
-            <button class="pc-skill-slot" id="pc-skill-${s}" type="button">
-              <img id="pc-skill-img-${s}" src="" alt="" />
-              <span class="pc-kbd">${['Q', 'E', 'R', 'F'][idx]}</span>
-              <div class="hok-skill-cd" id="pc-skill-cd-${s}" style="display:none;--cd-pct:0%;font-size:13px;"></div>
-            </button>`
+            <div class="pc-skill-col">
+              <button class="skill-up-btn pc-skill-up" id="pc-skill-up-${s}" type="button" style="display:none;" title="升级技能 [Shift+${['Q', 'E', 'R', 'F'][idx]}]">+</button>
+              <button class="pc-skill-slot" id="pc-skill-${s}" type="button">
+                <img id="pc-skill-img-${s}" src="" alt="" />
+                <span class="pc-kbd">${['Q', 'E', 'R', 'F'][idx]}</span>
+                <div class="skill-pip-bar pc-pip-bar" id="pc-skill-pips-${s}"></div>
+                <div class="hok-skill-cd" id="pc-skill-cd-${s}" style="display:none;--cd-pct:0%;font-size:13px;"></div>
+              </button>
+            </div>`
             )
             .join('')}
           <button class="pc-skill-slot" id="pc-btn-hp" type="button" title="生命药水 [1]">
@@ -378,6 +400,10 @@ export class HudUI {
     };
     q('#hud-minimap-btn').onclick = () => this.handlers.onOpenTeleport();
     q('#btn-urgent-defend').onclick = () => this.engine.actionTeleport('sanctuary');
+    q('#btn-urgent-invuln').onclick = () => {
+      this.engine.actionBase('invuln');
+      this.sync();
+    };
     q('#hok-hero-pill').onclick = () => this.handlers.onOpenShop();
     q('#hud-hok-shop-btn').onclick = () => this.handlers.onOpenShop();
     q('#btn-hud-pause').onclick = () => this.handlers.onOpenPause();
@@ -389,6 +415,20 @@ export class HudUI {
 
     for (let s = 0; s < 4; s++) {
       q(`#pc-skill-${s}`).onclick = () => this.engine.handleCastSkillInput(s);
+      const pcUp = q(`#pc-skill-up-${s}`);
+      pcUp.addEventListener('pointerdown', (e) => e.stopPropagation());
+      pcUp.onclick = (e) => {
+        e.stopPropagation();
+        this.engine.handleUpgradeSkillInput(s);
+        this.sync();
+      };
+      const hokUp = q(`#hok-skill-up-${s}`);
+      hokUp.addEventListener('pointerdown', (e) => e.stopPropagation());
+      hokUp.onclick = (e) => {
+        e.stopPropagation();
+        this.engine.handleUpgradeSkillInput(s);
+        this.sync();
+      };
     }
     q('#pc-btn-hp').onclick = () => this.engine.handleUsePotionInput('hp');
     q('#pc-btn-mp').onclick = () => this.engine.handleUsePotionInput('mp');
@@ -505,7 +545,8 @@ export class HudUI {
 
     const sancRatio = Math.max(0, Math.min(1, world.sanctuary.hp / Math.max(1, world.sanctuary.maxHp)));
     q('#hud-athena-fill').style.width = `${(sancRatio * 100).toFixed(1)}%`;
-    q('#hud-athena-txt').textContent = `圣殿 Lv.${world.sanctuary.level} · ${Math.round(world.sanctuary.hp)}/${Math.round(world.sanctuary.maxHp)}${world.sanctuary.invulnTimer > 0 ? ' [无敌中]' : ''}`;
+    const shieldTxt = world.sanctuary.shield > 0 ? ` (+盾${Math.round(world.sanctuary.shield)})` : '';
+    q('#hud-athena-txt').textContent = `圣殿 Lv.${world.sanctuary.level} · ${Math.round(world.sanctuary.hp)}/${Math.round(world.sanctuary.maxHp)}${shieldTxt}${world.sanctuary.invulnTimer > 0 ? ' [无敌中]' : ''}`;
 
     const underAtk = world.sanctuary.underAttackFlash > 0;
     if (underAtk) {
@@ -515,6 +556,13 @@ export class HudUI {
     const urgentBtn = q('#btn-urgent-defend');
     urgentBtn.style.display =
       local.zoneId !== 'sanctuary' && !local.dead && (underAtk || world.elapsedSec < this.urgentDefendHoldUntil)
+        ? 'inline-flex'
+        : 'none';
+    const urgentInvulnBtn = q('#btn-urgent-invuln');
+    urgentInvulnBtn.style.display =
+      (sancRatio < 0.5 || (local.dead && underAtk)) &&
+      world.sanctuary.invulnCd <= 0 &&
+      world.sanctuary.invulnTimer <= 0
         ? 'inline-flex'
         : 'none';
 
@@ -661,19 +709,29 @@ export class HudUI {
         q<HTMLImageElement>(`#hok-skill-img-${s}`).src = iconUrl;
       }
     }
-    const statTipKey = `${local.classId}:${local.level}:${Math.round(local.stats.ad)}:${Math.round(local.stats.ap)}:${Math.round(local.stats.cdr * 100)}`;
+    const statTipKey = `${local.classId}:${local.level}:${local.skillLevels.join(',')}:${local.skillPoints}:${Math.round(local.stats.ad)}:${Math.round(local.stats.ap)}:${Math.round(local.stats.cdr * 100)}`;
     if (statTipKey !== this.lastSkillTooltipKey) {
       this.lastSkillTooltipKey = statTipKey;
       for (let s = 0; s < 4; s++) {
         const sk = def.skills[s];
-        const realCd = Math.max(1.2, sk.cooldown * (1 - local.stats.cdr)).toFixed(1);
-        const estDmg = Math.round(
-          sk.damageBase + local.level * sk.damagePerLv + local.stats.ad * sk.adScale + local.stats.ap * sk.apScale
-        );
-        const dmgTxt = estDmg > 0 ? ` · 实时效能 ${estDmg}` : '';
-        q(`#pc-skill-${s}`).title = `[${sk.keyLabel}] ${sk.name} (${realCd}s · ${sk.manaCost}法力${dmgTxt})：${sk.desc}`;
+        const rank = local.skillLevels[s] || 0;
+        const maxLv = getSkillMaxLevel(sk);
+        const realCd = getEffectiveSkillCooldown(local, sk, rank).toFixed(1);
+        const manaCost = getEffectiveSkillManaCost(sk, rank);
+        const estDmg = Math.round(getScaledSkillDamage(local, sk, rank));
+        const dmgTxt = estDmg > 0 ? ` · 效能 ${estDmg}` : '';
+        const upHint = canUpgradeSkill(local, s) ? ` (Shift+${sk.keyLabel} 升级)` : '';
+        q(`#pc-skill-${s}`).title = `[${sk.keyLabel}] ${sk.name} Lv.${rank}/${maxLv} (${realCd}s · ${manaCost}法力${dmgTxt})${upHint}：${sk.desc}`;
       }
     }
+
+    const ptsText = local.skillPoints > 0 ? `✨ 技能点 +${local.skillPoints}` : '';
+    const hokPts = q('#hok-skill-pts-pill');
+    const pcPts = q('#pc-skill-pts-pill');
+    hokPts.style.display = ptsText ? 'flex' : 'none';
+    if (ptsText) hokPts.textContent = ptsText;
+    pcPts.style.display = ptsText ? 'flex' : 'none';
+    if (ptsText) pcPts.textContent = ptsText;
 
     const hpPct = `${Math.max(0, (local.hp / local.stats.maxHp) * 100).toFixed(1)}%`;
     const mpPct = `${Math.max(0, (local.mp / Math.max(1, local.stats.maxMp)) * 100).toFixed(1)}%`;
@@ -697,17 +755,39 @@ export class HudUI {
 
     for (let s = 0; s < 4; s++) {
       const sk = def.skills[s];
+      const rank = local.skillLevels[s] || 0;
+      const maxLv = getSkillMaxLevel(sk);
+      const unlearned = rank <= 0;
+      const reqLv = getSkillRequiredHeroLevel(sk, 1);
+      const lockedByLevel = unlearned && local.level < reqLv;
+      const canUp = canUpgradeSkill(local, s);
       const cd = local.skillCds[s];
-      const maxCd = Math.max(1.2, sk.cooldown * (1 - local.stats.cdr));
-      const locked = Boolean(sk.unlockLevel && local.level < sk.unlockLevel);
-      const lowMana = !locked && local.mp < sk.manaCost;
-      const pct = locked ? 100 : cd > 0 ? Math.min(100, (cd / maxCd) * 100) : 0;
-      const text = locked ? `Lv${sk.unlockLevel}` : cd > 0 ? `${Math.ceil(cd)}` : '';
+      const maxCd = getEffectiveSkillCooldown(local, sk, rank);
+      const manaCost = getEffectiveSkillManaCost(sk, rank);
+      const lowMana = !unlearned && local.mp < manaCost;
+      const pct = unlearned ? 100 : cd > 0 ? Math.min(100, (cd / maxCd) * 100) : 0;
+      const text = lockedByLevel ? `Lv${reqLv}` : unlearned ? (canUp ? '可学' : '未学') : cd > 0 ? `${Math.ceil(cd)}` : '';
 
       const pcBtn = q(`#pc-skill-${s}`);
       const hokBtn = q(`#hok-skill-${s}`);
       pcBtn.classList.toggle('is-low-mana', lowMana);
       hokBtn.classList.toggle('is-low-mana', lowMana);
+      pcBtn.classList.toggle('is-unlearned', unlearned);
+      hokBtn.classList.toggle('is-unlearned', unlearned);
+
+      q(`#pc-skill-up-${s}`).style.display = canUp ? 'flex' : 'none';
+      q(`#hok-skill-up-${s}`).style.display = canUp ? 'flex' : 'none';
+
+      const pipKey = `${rank}/${maxLv}`;
+      for (const pipId of [`#pc-skill-pips-${s}`, `#hok-skill-pips-${s}`]) {
+        const pipEl = q(pipId);
+        if (pipEl.getAttribute('data-rv') !== pipKey) {
+          pipEl.setAttribute('data-rv', pipKey);
+          pipEl.innerHTML = Array.from({ length: maxLv }, (_, idx) =>
+            `<span class="skill-pip ${idx < rank ? 'is-on' : ''} ${sk.isUlt ? 'is-ult' : ''}"></span>`
+          ).join('');
+        }
+      }
 
       const pcCd = q(`#pc-skill-cd-${s}`);
       const hokCd = q(`#hok-skill-cd-${s}`);

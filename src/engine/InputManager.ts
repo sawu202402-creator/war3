@@ -52,6 +52,7 @@ export class InputManager {
   private stickPointerId = -1;
   private lastTouchAt = 0;
   private onCastSkillCb: ((slot: number, dirX?: number, dirY?: number, distRatio?: number) => void) | null = null;
+  private onUpgradeSkillCb: ((slot: number) => void) | null = null;
   private onUsePotionCb: ((slot: 'hp' | 'mp' | 'tactical') => void) | null = null;
   private onFlashCb: ((dirX?: number, dirY?: number) => void) | null = null;
   private onRecallCb: (() => void) | null = null;
@@ -114,6 +115,13 @@ export class InputManager {
         if (this.hudMode === 'auto' && !this.detectTouchDevice() && performance.now() - this.lastTouchAt > 1800) {
           this.usingTouch = false;
         }
+      }
+
+      if ((e.shiftKey || e.altKey) && (code === 'KeyQ' || code === 'KeyE' || code === 'KeyR' || code === 'KeyF')) {
+        e.preventDefault();
+        const slot = code === 'KeyQ' ? 0 : code === 'KeyE' ? 1 : code === 'KeyR' ? 2 : 3;
+        this.onUpgradeSkillCb?.(slot);
+        return;
       }
 
       if (code === 'KeyQ') this.onCastSkillCb?.(0);
@@ -314,6 +322,7 @@ export class InputManager {
 
   public bindActions(handlers: {
     onCastSkill: (slot: number, dirX?: number, dirY?: number, distRatio?: number) => void;
+    onUpgradeSkill?: (slot: number) => void;
     onUsePotion: (slot: 'hp' | 'mp' | 'tactical') => void;
     onFlash: (dirX?: number, dirY?: number) => void;
     onRecall: () => void;
@@ -326,6 +335,7 @@ export class InputManager {
     onRightClickWorld: (screenX: number, screenY: number) => void;
   }): void {
     this.onCastSkillCb = handlers.onCastSkill;
+    this.onUpgradeSkillCb = handlers.onUpgradeSkill || null;
     this.onUsePotionCb = handlers.onUsePotion;
     this.onFlashCb = handlers.onFlash;
     this.onRecallCb = handlers.onRecall;

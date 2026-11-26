@@ -807,11 +807,14 @@ export class ModalsUI {
       <div class="war3-modal-body" style="display:flex;flex-direction:column;gap:12px;">
         <div style="padding:7px 11px;border-radius:7px;border:1px solid ${auraTier > 0 ? 'rgba(74,222,128,0.65)' : 'rgba(250,204,21,0.45)'};background:rgba(12,18,30,0.86);font-size:11.5px;color:${auraTier > 0 ? '#86efac' : '#fde68a'};font-weight:700;">
           ${auraBanner}
+          <div style="margin-top:4px;font-size:11px;color:#cbd5e1;font-weight:600;">
+            当前圣殿：护甲 ${world.sanctuary.armor} · 回血 ${world.sanctuary.hpRegen}/s · 危急圣盾 ${world.sanctuary.autoAegisCd > 0 ? `${Math.ceil(world.sanctuary.autoAegisCd)}s冷却` : '就绪'}（含自动圣光哨塔打击）
+          </div>
         </div>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;">
           <button class="war3-btn war3-btn-gold" id="btn-base-upg">
             升级圣殿 (Lv.${lv}→${lv + 1})<br/>
-            <span style="font-size:11px;">+1800 HP · +4 甲 · +9 回血 (${upgGold}G${upgCrys ? ` + ${upgCrys}木` : ''})</span>
+            <span style="font-size:11px;">+2600 HP · +5 甲 · +14 回血 (${upgGold}G${upgCrys ? ` + ${upgCrys}木` : ''})</span>
           </button>
           <button class="war3-btn war3-btn-blue" id="btn-base-invuln" ${world.sanctuary.invulnCd > 0 ? 'disabled' : ''}>
             圣殿神圣无敌 (15秒)<br/>

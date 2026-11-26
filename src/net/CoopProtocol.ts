@@ -113,6 +113,8 @@ export type HeroEconTuple = [
   revives: number,
   xp: number,
   sanctuaryAuraTier: number,
+  skillLevels: [number, number, number, number],
+  skillPoints: number,
 ];
 
 export type EnemySnapTuple = [
@@ -223,6 +225,7 @@ export type CoopNetMessage =
     }
   | { type: 'cmd_attack'; ownerId: string; dirX: number; dirY: number; mSeq?: number }
   | { type: 'cmd_skill'; ownerId: string; slot: number; dirX: number; dirY: number; distRatio: number; mSeq?: number }
+  | { type: 'cmd_upgrade_skill'; ownerId: string; slot: number }
   | { type: 'cmd_flash'; ownerId: string; dirX: number; dirY: number; mSeq?: number }
   | { type: 'cmd_recall'; ownerId: string }
   | { type: 'cmd_potion'; ownerId: string; slot: 'hp' | 'mp' | 'tactical' }
