@@ -40,6 +40,8 @@ export interface HeroEntity {
   kills: number;
   bossKills: number;
   damageDealt: number;
+  revives: number;
+  sanctuaryAuraTier: number;
 
   gold: number;
   crystal: number;
@@ -430,4 +432,6 @@ export interface GameWorldState {
   bannerTimer: number;
   cameraShake: number;
   nextEntityId: number;
+  defeatedBosses: EnemyKind[];
+  doubleGoldTimer: number;
 }

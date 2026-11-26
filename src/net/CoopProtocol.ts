@@ -32,6 +32,31 @@ export interface PublicRoomAd {
   updatedAt: number;
 }
 
+export interface SquadMvpEntry {
+  peerId: string;
+  callsign: string;
+  classId: HeroClassId;
+  color: string;
+  kills: number;
+  bossKills: number;
+  damageDealt: number;
+  comboPeak: number;
+  revives: number;
+}
+
+export type SummonSnapTuple = [
+  id: number,
+  ownerId: string,
+  kindCode: number, // 0:illusion, 1:treant
+  zoneId: ZoneId,
+  x: number,
+  y: number,
+  hp: number,
+  maxHp: number,
+  facing: number,
+  radius: number,
+];
+
 // Fast 30Hz hero kinematics + vitals
 export type HeroFastTuple = [
   id: string,
@@ -46,7 +71,7 @@ export type HeroFastTuple = [
   mp: number,
   maxMp: number,
   shield: number,
-  flags: number, // bit0: dead, bit1: recalling, bit2: swing/cast, bit3: stealth, bit4: bladestorm
+  flags: number, // bit0: dead, bit1: recalling, bit2: swing/cast, bit3: stealth, bit4: bladestorm, bit5: carryingWater, bit6: awakeningPrompted, bit7: exclusiveUnlocked
   reviveTimerTenths: number,
 ];
 
@@ -68,6 +93,12 @@ export type HeroEconTuple = [
   comboCount: number,
   comboTier: number,
   moveSpeed: number,
+  waterDone: number,
+  exclusiveLv: number,
+  damageDealt: number,
+  revives: number,
+  xp: number,
+  sanctuaryAuraTier: number,
 ];
 
 export type EnemySnapTuple = [
@@ -160,8 +191,14 @@ export type CoopNetMessage =
       sancMaxHp: number;
       sancLv: number;
       sancInvuln: number;
+      sancUnderAtk?: number;
+      banditCleared?: boolean;
+      doubleGoldSec?: number;
+      respawns?: Record<string, number>;
+      banner?: [string, string, number];
       heroes: HeroFastTuple[];
       econs?: HeroEconTuple[];
+      summons?: SummonSnapTuple[];
       enemies: EnemySnapTuple[];
       projs?: ProjSnapTuple[];
       telegraphs?: TelegraphSnapTuple[];
@@ -199,4 +236,5 @@ export type CoopNetMessage =
       dur?: number;
       mSeq?: number;
     }
-  | { type: 'evt_run_finished'; victory: boolean; mSeq?: number };
+  | { type: 'evt_run_finished'; victory: boolean; squadStats?: SquadMvpEntry[]; defeatedBosses?: EnemyKind[]; mSeq?: number }
+  | { type: 'evt_continue_endless'; mSeq?: number };

@@ -728,6 +728,14 @@ export class ModalsUI {
     const pauseCost = 1 + world.wavePauseCountUsed;
     const pausesLeft = world.maxWavePauses - world.wavePauseCountUsed;
 
+    const auraTier = lv >= 10 ? 2 : lv >= 5 ? 1 : 0;
+    const auraBanner =
+      auraTier >= 2
+        ? '✨ 已激活【雅典娜神佑 II】：全队 +22% 攻击/法强 · +0.30 攻速 · +14 回蓝 · +8% 减伤'
+        : auraTier === 1
+          ? '✨ 已激活【雅典娜神佑 I】：全队 +10% 攻击/法强 · +0.14 攻速 · +6 回蓝（Lv.10 进阶 II 阶）'
+          : '🌟 阶段光环预告：圣殿升至 Lv.5 解锁【神佑 I】，Lv.10 解锁【神佑 II】全队光环';
+
     return `
       <div class="war3-modal-head">
         <div class="modal-title-group">
@@ -737,6 +745,9 @@ export class ModalsUI {
         <button class="war3-btn war3-btn-red" id="btn-modal-close">关闭</button>
       </div>
       <div class="war3-modal-body" style="display:flex;flex-direction:column;gap:12px;">
+        <div style="padding:7px 11px;border-radius:7px;border:1px solid ${auraTier > 0 ? 'rgba(74,222,128,0.65)' : 'rgba(250,204,21,0.45)'};background:rgba(12,18,30,0.86);font-size:11.5px;color:${auraTier > 0 ? '#86efac' : '#fde68a'};font-weight:700;">
+          ${auraBanner}
+        </div>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;">
           <button class="war3-btn war3-btn-gold" id="btn-base-upg">
             升级圣殿 (Lv.${lv}→${lv + 1})<br/>
@@ -841,6 +852,11 @@ export class ModalsUI {
   private buildSettlementModal(): string {
     const world = this.engine.world!;
     const hero = this.engine.getLocalHero()!;
+    const squad = this.engine.lastSquadStats;
+    const totalSquadDmg = Math.max(
+      1,
+      squad.reduce((acc, s) => acc + Math.max(0, s.damageDealt), 0)
+    );
     return `
       <div class="war3-modal-head">
         <div class="modal-title-group">
@@ -853,6 +869,32 @@ export class ModalsUI {
           坚持波次：第 ${world.wave} 波 ｜ 击杀敌军：${hero.kills} ｜ 最高连斩：${hero.comboPeak}<br/>
           总伤害：${Math.round(hero.damageDealt)} ｜ 本局获得荣誉：<span style="color:#4ade80;">+${this.engine.lastRunHonor}</span>
         </div>
+        ${
+          squad.length > 1
+            ? `
+          <div class="mvp-scoreboard">
+            ${squad
+              .map((s, idx) => {
+                const dmgPct = Math.round((Math.max(0, s.damageDealt) / totalSquadDmg) * 100);
+                return `
+                  <div class="mvp-row ${idx === 0 ? 'is-mvp' : ''}">
+                    <img class="mvp-ava" src="${IconAtlas.getDataUrl(`hero_${s.classId}`)}" alt="" />
+                    <div class="mvp-info">
+                      <div class="mvp-name-line">
+                        <span style="color:${s.color};font-weight:800;">${s.callsign}</span>
+                        ${idx === 0 ? '<span class="mvp-badge">👑 MVP</span>' : ''}
+                      </div>
+                      <div class="mvp-metrics">击杀 ${s.kills} · Boss ${s.bossKills} · 救援 ${s.revives} · 连斩 ${s.comboPeak}</div>
+                      <div class="mvp-dmg-track"><div class="mvp-dmg-fill" style="width:${dmgPct}%"></div></div>
+                    </div>
+                    <div class="mvp-dmg-txt">${Math.round(s.damageDealt)}<br/><span>${dmgPct}% 输出</span></div>
+                  </div>
+                `;
+              })
+              .join('')}
+          </div>`
+            : ''
+        }
         <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
           ${
             this.settlementVictory

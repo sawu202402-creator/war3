@@ -1,6 +1,6 @@
 import { getHeroClassDef } from '../data/heroes';
 import { RARITY_META, getItemDef } from '../data/items';
-import { ZONES } from '../data/worldMap';
+import { WORLD_HEIGHT, WORLD_WIDTH, ZONES } from '../data/worldMap';
 import { getQuickBuyOptions } from '../engine/EconomySystem';
 import { GameEngine } from '../engine/GameEngine';
 import { IconAtlas } from '../engine/IconAtlas';
@@ -13,6 +13,8 @@ export class HudUI {
   private lastSquadHash = '__init__';
   private lastInvHash = '__init__';
   private lastHeroClass = '';
+  private lastSkillTooltipKey = '';
+  private urgentDefendHoldUntil = 0;
 
   constructor(
     private root: HTMLElement,
@@ -30,10 +32,11 @@ export class HudUI {
     const div = document.createElement('div');
     div.className = `hud-root ${this.engine.input.usingTouch ? 'is-touch-hud' : ''}`;
     div.innerHTML = `
+      <div class="hud-athena-danger-edge" id="hud-athena-danger-edge"></div>
       <div class="hud-top-bar">
         <div class="hud-left-col">
           <div class="hud-left-top-row">
-            <div class="hud-minimap-wrap war3-stone-panel" id="hud-minimap-btn" title="点击打开快捷传送 / 发信号">
+            <div class="hud-minimap-wrap war3-stone-panel" id="hud-minimap-btn" title="点击小地图发送集合信号 · 点区名打开传送">
               <canvas id="hud-minimap" width="124" height="124"></canvas>
               <span class="hud-zone-tag" id="hud-zone-tag">中心圣殿广场</span>
             </div>
@@ -85,6 +88,7 @@ export class HudUI {
             </span>
           </div>
           <div class="hud-banner war3-stone-panel" id="hud-banner"></div>
+          <button class="war3-btn war3-btn-red hud-urgent-defend" id="btn-urgent-defend" type="button" style="display:none;">🚨 圣殿遇袭 · 一键回防</button>
         </div>
 
         <div class="hud-right-col">
@@ -281,6 +285,8 @@ export class HudUI {
     this.lastSquadHash = '__init__';
     this.lastInvHash = '__init__';
     this.lastHeroClass = '';
+    this.lastSkillTooltipKey = '';
+    this.urgentDefendHoldUntil = 0;
   }
 
   private bindDragAimButton(
@@ -357,7 +363,21 @@ export class HudUI {
     if (!this.container) return;
     const q = <T extends HTMLElement>(sel: string) => this.container!.querySelector(sel) as T;
 
+    q('#hud-zone-tag').onclick = (e) => {
+      e.stopPropagation();
+      this.handlers.onOpenTeleport();
+    };
+    const minimapCanvas = q('#hud-minimap');
+    minimapCanvas.onclick = (e) => {
+      e.stopPropagation();
+      const rect = minimapCanvas.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      const rx = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const ry = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+      this.engine.handleSendPing('集合支援!', Math.round(rx * WORLD_WIDTH), Math.round(ry * WORLD_HEIGHT));
+    };
     q('#hud-minimap-btn').onclick = () => this.handlers.onOpenTeleport();
+    q('#btn-urgent-defend').onclick = () => this.engine.actionTeleport('sanctuary');
     q('#hok-hero-pill').onclick = () => this.handlers.onOpenShop();
     q('#hud-hok-shop-btn').onclick = () => this.handlers.onOpenShop();
     q('#btn-hud-pause').onclick = () => this.handlers.onOpenPause();
@@ -487,6 +507,17 @@ export class HudUI {
     q('#hud-athena-fill').style.width = `${(sancRatio * 100).toFixed(1)}%`;
     q('#hud-athena-txt').textContent = `圣殿 Lv.${world.sanctuary.level} · ${Math.round(world.sanctuary.hp)}/${Math.round(world.sanctuary.maxHp)}${world.sanctuary.invulnTimer > 0 ? ' [无敌中]' : ''}`;
 
+    const underAtk = world.sanctuary.underAttackFlash > 0;
+    if (underAtk) {
+      this.urgentDefendHoldUntil = Math.max(this.urgentDefendHoldUntil, world.elapsedSec + 4.0);
+    }
+    q('#hud-athena-danger-edge').classList.toggle('active', underAtk || sancRatio < 0.35);
+    const urgentBtn = q('#btn-urgent-defend');
+    urgentBtn.style.display =
+      local.zoneId !== 'sanctuary' && !local.dead && (underAtk || world.elapsedSec < this.urgentDefendHoldUntil)
+        ? 'inline-flex'
+        : 'none';
+
     const activeBoss =
       world.enemies.find((e) => e.isBoss && e.hp > 0 && e.zoneId === local.zoneId) ||
       world.enemies.find((e) => e.isBoss && e.hp > 0 && e.zoneId === 'sanctuary');
@@ -561,6 +592,9 @@ export class HudUI {
     if (local.carryingWater) {
       questEl.style.display = 'block';
       questEl.textContent = '正在护送圣泉之水 → 前往东郊祭坛!';
+    } else if (world.doubleGoldTimer > 0) {
+      questEl.style.display = 'block';
+      questEl.textContent = `💰 黄金狂潮：击杀双倍金币 (${Math.ceil(world.doubleGoldTimer)}s)`;
     } else if (world.quests.banditCleared) {
       questEl.style.display = 'block';
       questEl.textContent = '盗贼营地已清剿 · 全队商店 85 折';
@@ -625,7 +659,19 @@ export class HudUI {
         const iconUrl = IconAtlas.getDataUrl(sk.iconKey);
         q<HTMLImageElement>(`#pc-skill-img-${s}`).src = iconUrl;
         q<HTMLImageElement>(`#hok-skill-img-${s}`).src = iconUrl;
-        q(`#pc-skill-${s}`).title = `[${sk.keyLabel}] ${sk.name} (${sk.cooldown}s · ${sk.manaCost}法力)：${sk.desc}`;
+      }
+    }
+    const statTipKey = `${local.classId}:${local.level}:${Math.round(local.stats.ad)}:${Math.round(local.stats.ap)}:${Math.round(local.stats.cdr * 100)}`;
+    if (statTipKey !== this.lastSkillTooltipKey) {
+      this.lastSkillTooltipKey = statTipKey;
+      for (let s = 0; s < 4; s++) {
+        const sk = def.skills[s];
+        const realCd = Math.max(1.2, sk.cooldown * (1 - local.stats.cdr)).toFixed(1);
+        const estDmg = Math.round(
+          sk.damageBase + local.level * sk.damagePerLv + local.stats.ad * sk.adScale + local.stats.ap * sk.apScale
+        );
+        const dmgTxt = estDmg > 0 ? ` · 实时效能 ${estDmg}` : '';
+        q(`#pc-skill-${s}`).title = `[${sk.keyLabel}] ${sk.name} (${realCd}s · ${sk.manaCost}法力${dmgTxt})：${sk.desc}`;
       }
     }
 

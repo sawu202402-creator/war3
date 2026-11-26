@@ -17,6 +17,13 @@ import { InputManager } from './InputManager';
 
 export class War3Renderer {
   private patternCache = new Map<TerrainBiome, CanvasPattern>();
+  private visibleEnemiesBuf: EnemyEntity[] = [];
+  private visibleHeroesBuf: HeroEntity[] = [];
+  private placedPlatesBuf: { x: number; y: number }[] = [];
+  private minimapCache: HTMLCanvasElement | null = null;
+  private minimapCacheW = 0;
+  private minimapCacheH = 0;
+  private minimapCacheHasPlaza = false;
 
   private getPattern(ctx: CanvasRenderingContext2D, biome: TerrainBiome): CanvasPattern | null {
     const cached = this.patternCache.get(biome);
@@ -424,11 +431,18 @@ export class War3Renderer {
       ctx.restore();
     }
 
-    // 9. Enemies & Bosses (Y-sorted depth order + raster Target Lock reticle)
-    const visibleEnemies = world.enemies
-      .filter((e) => e.x + 120 >= minX && e.x - 120 <= maxX && e.y + 120 >= minY && e.y - 120 <= maxY)
-      .sort((a, b) => a.y - b.y);
-    for (const e of visibleEnemies) {
+    // 9. Enemies & Bosses (Zero-GC buffered Y-sort + raster Target Lock reticle)
+    const visibleEnemies = this.visibleEnemiesBuf;
+    visibleEnemies.length = 0;
+    for (let i = 0; i < world.enemies.length; i++) {
+      const e = world.enemies[i];
+      if (e.x + 120 >= minX && e.x - 120 <= maxX && e.y + 120 >= minY && e.y - 120 <= maxY) {
+        visibleEnemies.push(e);
+      }
+    }
+    visibleEnemies.sort((a, b) => a.y - b.y);
+    for (let i = 0; i < visibleEnemies.length; i++) {
+      const e = visibleEnemies[i];
       if (lockedTargetId !== null && e.id === lockedTargetId) {
         const lockSz = (e.radius * 2.6 + Math.sin(nowSec * 8) * 3) * 1.18;
         this.drawCenteredSprite(ctx, IconAtlas.getSprite('fx_aura_wind'), e.x, e.y + e.radius * 0.45, lockSz * 0.92, lockSz * 0.52, {
@@ -445,12 +459,20 @@ export class War3Renderer {
       this.renderEnemy(ctx, e, nowSec);
     }
 
-    // 10. Heroes (Y-sorted depth order with anti-overlap nameplate staggering)
-    const visibleHeroes = world.heroes
-      .filter((h) => h.x + 140 >= minX && h.x - 140 <= maxX && h.y + 140 >= minY && h.y - 140 <= maxY)
-      .sort((a, b) => a.y - b.y);
-    const placedPlates: { x: number; y: number }[] = [];
-    for (const h of visibleHeroes) {
+    // 10. Heroes (Zero-GC buffered Y-sort with anti-overlap nameplate staggering)
+    const visibleHeroes = this.visibleHeroesBuf;
+    visibleHeroes.length = 0;
+    for (let i = 0; i < world.heroes.length; i++) {
+      const h = world.heroes[i];
+      if (h.x + 140 >= minX && h.x - 140 <= maxX && h.y + 140 >= minY && h.y - 140 <= maxY) {
+        visibleHeroes.push(h);
+      }
+    }
+    visibleHeroes.sort((a, b) => a.y - b.y);
+    const placedPlates = this.placedPlatesBuf;
+    placedPlates.length = 0;
+    for (let i = 0; i < visibleHeroes.length; i++) {
+      const h = visibleHeroes[i];
       const scale = h.avatarTimer > 0 ? 1.32 : 1.0;
       const basePlateY = h.y + 14 - 90 * scale * 0.88 - 16;
       let lift = 0;
@@ -684,6 +706,47 @@ export class War3Renderer {
     const vigSpr = IconAtlas.getSprite('ui_vignette');
     if (vigSpr) {
       ctx.drawImage(vigSpr, 0, 0, viewW, viewH);
+    }
+
+    // 18. Pure-Raster Offscreen Edge Indicators (Same-zone Boss & Downed Allies)
+    if (localHero) {
+      const arrowSpr = IconAtlas.getSprite('proj_arrow');
+      const padX = 54;
+      const padY = 58;
+      const drawEdgeMarker = (wx: number, wy: number, label: string, ringKey: string, textCol: string, borderCol: string) => {
+        const sx = (wx - camX) * worldZoom;
+        const sy = (wy - camY) * worldZoom;
+        if (sx >= 18 && sx <= viewW - 18 && sy >= 18 && sy <= viewH - 18) return;
+        const cx = viewW * 0.5;
+        const cy = viewH * 0.5;
+        const ang = Math.atan2(sy - cy, sx - cx);
+        const ix = Math.max(padX, Math.min(viewW - padX, sx));
+        const iy = Math.max(padY, Math.min(viewH - padY, sy));
+        this.drawCenteredSprite(ctx, IconAtlas.getSprite(ringKey), ix, iy, 36, 36, {
+          angle: nowSec * 2.2,
+          alpha: 0.78,
+          additive: true,
+        });
+        if (arrowSpr) {
+          this.drawCenteredSprite(ctx, arrowSpr, ix + Math.cos(ang) * 14, iy + Math.sin(ang) * 14, 24, 24, {
+            angle: ang,
+            alpha: 0.94,
+          });
+        }
+        const distM = Math.max(1, Math.round(Math.hypot(wx - localHero.x, wy - localHero.y) / 60));
+        this.drawWorldLabel(ctx, ix, iy + 25, `${label} ${distM}m`, textCol, borderCol, 10);
+      };
+
+      for (const e of world.enemies) {
+        if (e.isBoss && e.hp > 0 && e.zoneId === localHero.zoneId) {
+          drawEdgeMarker(e.x, e.y, 'BOSS', 'fx_telegraph_danger', '#fda4af', '#f43f5e');
+        }
+      }
+      for (const h of world.heroes) {
+        if (!h.isLocal && h.dead && h.zoneId === localHero.zoneId) {
+          drawEdgeMarker(h.x, h.y, `救援 ${h.callsign.slice(0, 4)}`, 'fx_ring_ally', '#7dd3fc', '#38bdf8');
+        }
+      }
     }
   }
 
@@ -1318,54 +1381,71 @@ export class War3Renderer {
   }
 
   public renderMinimap(ctx: CanvasRenderingContext2D, world: GameWorldState, w: number, h: number): void {
-    ctx.fillStyle = '#090d14';
-    ctx.fillRect(0, 0, w, h);
     const sx = w / WORLD_WIDTH;
     const sy = h / WORLD_HEIGHT;
+    const plazaSpr = IconAtlas.getSprite('tile_plaza_disc');
+    const plazaReady = Boolean(plazaSpr && (!(plazaSpr instanceof HTMLImageElement) || (plazaSpr.complete && plazaSpr.naturalWidth > 0)));
 
-    for (const z of ZONE_LIST) {
-      const rx = z.rect.x * sx;
-      const ry = z.rect.y * sy;
-      const rw = z.rect.w * sx;
-      const rh = z.rect.h * sy;
-      ctx.fillStyle = `${z.color}2e`;
-      ctx.fillRect(rx, ry, rw, rh);
-      ctx.fillStyle = `${z.color}88`;
-      ctx.fillRect(rx, ry, rw, 1);
-      ctx.fillRect(rx, ry + rh - 1, rw, 1);
-      ctx.fillRect(rx, ry, 1, rh);
-      ctx.fillRect(rx + rw - 1, ry, 1, rh);
+    if (!this.minimapCache || this.minimapCacheW !== w || this.minimapCacheH !== h || this.minimapCacheHasPlaza !== plazaReady) {
+      const off = this.minimapCache || document.createElement('canvas');
+      off.width = w;
+      off.height = h;
+      const octx = off.getContext('2d');
+      if (octx) {
+        octx.fillStyle = '#090d14';
+        octx.fillRect(0, 0, w, h);
+
+        for (const z of ZONE_LIST) {
+          const rx = z.rect.x * sx;
+          const ry = z.rect.y * sy;
+          const rw = z.rect.w * sx;
+          const rh = z.rect.h * sy;
+          octx.fillStyle = `${z.color}2e`;
+          octx.fillRect(rx, ry, rw, rh);
+          octx.fillStyle = `${z.color}88`;
+          octx.fillRect(rx, ry, rw, 1);
+          octx.fillRect(rx, ry + rh - 1, rw, 1);
+          octx.fillRect(rx, ry, 1, rh);
+          octx.fillRect(rx + rw - 1, ry, 1, rh);
+        }
+
+        const drawMapRoad = (x1: number, y1: number, x2: number, y2: number, wWorld: number) => {
+          const mx1 = x1 * sx;
+          const my1 = y1 * sy;
+          const mx2 = x2 * sx;
+          const my2 = y2 * sy;
+          const dx = mx2 - mx1;
+          const dy = my2 - my1;
+          const len = Math.hypot(dx, dy);
+          if (len < 1) return;
+          octx.save();
+          octx.translate(mx1, my1);
+          octx.rotate(Math.atan2(dy, dx));
+          octx.fillStyle = 'rgba(200, 162, 74, 0.34)';
+          octx.fillRect(0, -wWorld * sx * 0.5, len, wWorld * sx);
+          octx.restore();
+        };
+        drawMapRoad(1760, 1320, 1760, 1590, 95);
+        drawMapRoad(2100, 1320, 2100, 1890, 105);
+        drawMapRoad(2440, 1320, 2440, 1590, 95);
+        drawMapRoad(1760, 1585, CONVERGENCE_POS.x, CONVERGENCE_POS.y, 98);
+        drawMapRoad(2440, 1585, CONVERGENCE_POS.x, CONVERGENCE_POS.y, 98);
+        drawMapRoad(CONVERGENCE_POS.x, CONVERGENCE_POS.y, ATHENA_POS.x, ATHENA_POS.y, 145);
+        drawMapRoad(FOUNTAIN_POS.x, FOUNTAIN_POS.y, WATER_ALTAR_POS.x, WATER_ALTAR_POS.y, 120);
+
+        if (plazaReady && plazaSpr) {
+          this.drawCenteredSprite(octx, plazaSpr, CONVERGENCE_POS.x * sx, CONVERGENCE_POS.y * sy, 320 * sx, 320 * sy, { alpha: 0.72 });
+          this.drawCenteredSprite(octx, plazaSpr, ATHENA_POS.x * sx, ATHENA_POS.y * sy, 880 * sx, 880 * sy, { alpha: 0.72 });
+        }
+      }
+      this.minimapCache = off;
+      this.minimapCacheW = w;
+      this.minimapCacheH = h;
+      this.minimapCacheHasPlaza = plazaReady;
     }
 
-    // 1-approach 3-column converging lane layout + chokepoint + courtyard disc + east water road
-    const drawMapRoad = (x1: number, y1: number, x2: number, y2: number, wWorld: number) => {
-      const mx1 = x1 * sx;
-      const my1 = y1 * sy;
-      const mx2 = x2 * sx;
-      const my2 = y2 * sy;
-      const dx = mx2 - mx1;
-      const dy = my2 - my1;
-      const len = Math.hypot(dx, dy);
-      if (len < 1) return;
-      ctx.save();
-      ctx.translate(mx1, my1);
-      ctx.rotate(Math.atan2(dy, dx));
-      ctx.fillStyle = 'rgba(200, 162, 74, 0.34)';
-      ctx.fillRect(0, -wWorld * sx * 0.5, len, wWorld * sx);
-      ctx.restore();
-    };
-    drawMapRoad(1760, 1320, 1760, 1590, 95);
-    drawMapRoad(2100, 1320, 2100, 1890, 105);
-    drawMapRoad(2440, 1320, 2440, 1590, 95);
-    drawMapRoad(1760, 1585, CONVERGENCE_POS.x, CONVERGENCE_POS.y, 98);
-    drawMapRoad(2440, 1585, CONVERGENCE_POS.x, CONVERGENCE_POS.y, 98);
-    drawMapRoad(CONVERGENCE_POS.x, CONVERGENCE_POS.y, ATHENA_POS.x, ATHENA_POS.y, 145);
-    drawMapRoad(FOUNTAIN_POS.x, FOUNTAIN_POS.y, WATER_ALTAR_POS.x, WATER_ALTAR_POS.y, 120);
-
-    const plazaSpr = IconAtlas.getSprite('tile_plaza_disc');
-    if (plazaSpr) {
-      this.drawCenteredSprite(ctx, plazaSpr, CONVERGENCE_POS.x * sx, CONVERGENCE_POS.y * sy, 320 * sx, 320 * sy, { alpha: 0.72 });
-      this.drawCenteredSprite(ctx, plazaSpr, ATHENA_POS.x * sx, ATHENA_POS.y * sy, 880 * sx, 880 * sy, { alpha: 0.72 });
+    if (this.minimapCache) {
+      ctx.drawImage(this.minimapCache, 0, 0);
     }
 
     // Towers

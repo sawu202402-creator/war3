@@ -240,7 +240,7 @@ export function updateEnemies(world: GameWorldState, dt: number): void {
         e.bossAbilityTimer = Math.min(e.bossAbilityTimer, 0.8);
         world.vfx.push({ kind: 'explosion', x: e.x, y: e.y, radius: 170, color: '#f43f5e', life: 0.5, maxLife: 0.5 });
         world.cameraShake = Math.max(world.cameraShake, 7);
-        SoundFX.playBossHorn();
+        SoundFX.playBossEnrage();
         addFloatingText(world, e.x, e.y - 46, '狂暴第二阶段！', '#f43f5e', 16);
         world.bannerText = `🔥 ${e.name} 血量跌破 50%，进入【狂暴 P2】！`;
         world.bannerColor = '#f43f5e';
@@ -386,30 +386,73 @@ export function updateEnemies(world: GameWorldState, dt: number): void {
     }
   }
 
-  // Pairwise soft separation so 3-column swarms fan out cleanly at convergence & combat
-  const enemyCount = world.enemies.length;
-  for (let i = 0; i < enemyCount; i++) {
-    const a = world.enemies[i];
+  // Spatial hash separation (O(N) pooled buckets, zero per-frame bucket allocations)
+  separateEnemiesSpatial(world);
+}
+
+const sepGridMap = new Map<number, EnemyEntity[]>();
+const sepGridPool: EnemyEntity[][] = [];
+
+function separateEnemiesSpatial(world: GameWorldState): void {
+  const enemies = world.enemies;
+  const count = enemies.length;
+  if (count < 2) return;
+
+  sepGridMap.clear();
+  let poolIdx = 0;
+
+  for (let i = 0; i < count; i++) {
+    const e = enemies[i];
+    if (e.hp <= 0) continue;
+    const cx = Math.floor(e.x / 64);
+    const cy = Math.floor(e.y / 64);
+    const key = ((cy + 256) << 12) | ((cx + 256) & 0xfff);
+    let bucket = sepGridMap.get(key);
+    if (!bucket) {
+      bucket = sepGridPool[poolIdx];
+      if (!bucket) {
+        bucket = [];
+        sepGridPool.push(bucket);
+      } else {
+        bucket.length = 0;
+      }
+      poolIdx++;
+      sepGridMap.set(key, bucket);
+    }
+    bucket.push(e);
+  }
+
+  for (let i = 0; i < count; i++) {
+    const a = enemies[i];
     if (a.hp <= 0) continue;
-    for (let j = i + 1; j < enemyCount; j++) {
-      const b = world.enemies[j];
-      if (b.hp <= 0 || b.zoneId !== a.zoneId) continue;
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
-      const minDist = (a.radius + b.radius) * 0.78;
-      if (Math.abs(dx) >= minDist || Math.abs(dy) >= minDist) continue;
-      const d2 = dx * dx + dy * dy;
-      if (d2 >= minDist * minDist) continue;
-      const d = Math.sqrt(d2) || 0.01;
-      const push = (minDist - d) * 0.36;
-      const nx = (dx / d) * push;
-      const ny = (dy / d) * push;
-      const clA = clampToRect(a.x - nx, a.y - ny, a.radius + 4, ZONES[a.zoneId].rect);
-      a.x = clA.x;
-      a.y = clA.y;
-      const clB = clampToRect(b.x + nx, b.y + ny, b.radius + 4, ZONES[b.zoneId].rect);
-      b.x = clB.x;
-      b.y = clB.y;
+    const acx = Math.floor(a.x / 64);
+    const acy = Math.floor(a.y / 64);
+    for (let oy = -1; oy <= 1; oy++) {
+      for (let ox = -1; ox <= 1; ox++) {
+        const bucket = sepGridMap.get(((acy + oy + 256) << 12) | ((acx + ox + 256) & 0xfff));
+        if (!bucket) continue;
+        for (let k = 0; k < bucket.length; k++) {
+          const b = bucket[k];
+          if (b.id <= a.id || b.hp <= 0 || b.zoneId !== a.zoneId) continue;
+          const dx = b.x - a.x;
+          const dy = b.y - a.y;
+          const minDist = (a.radius + b.radius) * 0.78;
+          if (Math.abs(dx) >= minDist || Math.abs(dy) >= minDist) continue;
+          const d2 = dx * dx + dy * dy;
+          if (d2 >= minDist * minDist) continue;
+          const d = Math.sqrt(d2) || 0.01;
+          const push = (minDist - d) * 0.36;
+          const nx = (dx / d) * push;
+          const ny = (dy / d) * push;
+          const zr = ZONES[a.zoneId].rect;
+          const clA = clampToRect(a.x - nx, a.y - ny, a.radius + 4, zr);
+          a.x = clA.x;
+          a.y = clA.y;
+          const clB = clampToRect(b.x + nx, b.y + ny, b.radius + 4, zr);
+          b.x = clB.x;
+          b.y = clB.y;
+        }
+      }
     }
   }
 }
@@ -461,6 +504,7 @@ function pushBossLaser(
   color: string,
   chargeSec = 1.15
 ): void {
+  SoundFX.playLaserCharge();
   const ang = Math.atan2(targetY - boss.y, targetX - boss.x);
   world.telegraphs.push({
     id: world.nextEntityId++,

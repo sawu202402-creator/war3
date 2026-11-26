@@ -528,23 +528,27 @@ export class LobbyUI {
             <img src="${IconAtlas.getDataUrl('ui_ico_kill')}" alt="" />
             <div>
               <strong>魔神与秘境 Boss 图鉴</strong>
-              <div class="sub-muted">共 ${bosses.length} 位守关与秘境首领</div>
+              <div class="sub-muted">共 ${bosses.length} 位守关与秘境首领（已击破 ${bosses.filter((b) => SaveManager.get().defeatedBosses.includes(b.kind)).length}/${bosses.length}）</div>
             </div>
           </div>
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px;">
             ${bosses
-              .map(
-                (b) => `
+              .map((b) => {
+                const defeated = SaveManager.get().defeatedBosses.includes(b.kind);
+                return `
                 <div class="boss-codex-card" style="border-color:${b.accentColor};">
                   <img class="boss-codex-avatar" src="${IconAtlas.getDataUrl(`enemy_${b.kind}`)}" alt="${b.name}" />
                   <div>
-                    <div style="font-weight:800;color:${b.accentColor};font-size:13px;">${b.name}</div>
+                    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                      <span style="font-weight:800;color:${b.accentColor};font-size:13px;">${b.name}</span>
+                      <span style="font-size:10px;font-weight:800;padding:1px 5px;border-radius:4px;background:${defeated ? 'rgba(22,163,74,0.35)' : 'rgba(51,65,85,0.5)'};color:${defeated ? '#4ade80' : '#94a3b8'};">${defeated ? '✅ 已击破' : '未击破'}</span>
+                    </div>
                     <div style="font-size:11px;color:#94a3b8;margin-top:2px;">基础血量 ${b.baseHp} · ${b.goldReward}G / ${b.crystalReward || 0}木</div>
                     <div style="font-size:11px;color:#fde047;margin-top:2px;">掉落：${(b.dropItems || []).map((d) => getItemDef(d.itemId)?.name).join('、') || '随机强化资源'}</div>
                   </div>
                 </div>
-              `
-              )
+              `;
+              })
               .join('')}
           </div>
         </div>

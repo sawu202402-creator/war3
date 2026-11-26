@@ -177,6 +177,20 @@ export function recalcHeroStats(hero: HeroEntity): void {
     s.cdr += cdrBonuses[tierIdx];
   }
 
+  // Sanctuary Stage Aura (Lv.5 Tier 1 / Lv.10 Tier 2)
+  if (hero.sanctuaryAuraTier >= 2) {
+    s.ad *= 1.22;
+    s.ap *= 1.22;
+    s.atkSpeed += 0.3;
+    s.mpRegen += 14;
+    s.damageReduce += 0.08;
+  } else if (hero.sanctuaryAuraTier === 1) {
+    s.ad *= 1.1;
+    s.ap *= 1.1;
+    s.atkSpeed += 0.14;
+    s.mpRegen += 6;
+  }
+
   s.critChance = Math.min(0.95, Math.max(0, s.critChance));
   s.cdr = Math.min(0.55, Math.max(0, s.cdr));
   s.damageReduce = Math.min(0.65, Math.max(0, s.damageReduce));

@@ -274,6 +274,9 @@ export function handleEnemyDeathDrops(world: GameWorldState, enemy: EnemyEntity,
     maxLife: enemy.isBoss ? 0.45 : 0.22,
   });
   if (enemy.isBoss) {
+    if (!world.defeatedBosses.includes(enemy.kind)) {
+      world.defeatedBosses.push(enemy.kind);
+    }
     world.vfx.push({
       kind: 'ring',
       x: enemy.x,
@@ -291,7 +294,8 @@ export function handleEnemyDeathDrops(world: GameWorldState, enemy: EnemyEntity,
     (h) => !h.dead && (enemy.isBoss || h.zoneId === enemy.zoneId)
   );
   const targets = recipients.length > 0 ? recipients : world.heroes.filter((h) => !h.dead);
-  const splitGold = Math.max(1, Math.round(enemy.goldReward / Math.max(1, targets.length * 0.72)));
+  const goldMult = world.doubleGoldTimer > 0 ? 2 : 1;
+  const splitGold = Math.max(1, Math.round((enemy.goldReward * goldMult) / Math.max(1, targets.length * 0.72)));
   const splitXp = Math.max(1, Math.round(enemy.xpReward / Math.max(1, targets.length * 0.78)));
   const instantGold = enemy.isBoss ? splitGold : Math.max(1, Math.round(splitGold * 0.65));
   const dropGold = enemy.isBoss ? 0 : Math.max(1, splitGold - instantGold);
@@ -375,6 +379,9 @@ export function handleEnemyDeathDrops(world: GameWorldState, enemy: EnemyEntity,
       itemId: 'mat_stone',
       life: 32,
     });
+    if (enemy.zoneId === world.heroes.find((h) => h.isLocal)?.zoneId) {
+      SoundFX.playStoneDrop();
+    }
   }
 
   // Special Branch Boss Clear Hooks
@@ -513,9 +520,11 @@ export function updateBranches(world: GameWorldState, dt: number): void {
       h.hp = Math.min(h.stats.maxHp, h.hp + h.stats.maxHp * 0.18 * dt);
       h.mp = Math.min(h.stats.maxMp, h.mp + h.stats.maxMp * 0.24 * dt);
 
-      if (!h.carryingWater && h.waterDeliveriesDone < 5 && h.isLocal) {
+      if (!h.carryingWater && h.waterDeliveriesDone < 5 && !h.isBot) {
         h.carryingWater = true;
-        addFloatingText(world, h.x, h.y - 40, '接满圣泉之水！沿东路送往祭坛 →', '#38bdf8', 14);
+        if (h.isLocal) {
+          addFloatingText(world, h.x, h.y - 40, '接满圣泉之水！沿东路送往祭坛 →', '#38bdf8', 14);
+        }
       }
     }
 
@@ -587,23 +596,39 @@ export function updateBranches(world: GameWorldState, dt: number): void {
     }
   }
 
-  // 6. Random Events (Treasure Goblin / Wandering Elite)
+  // 6. Random Events (Treasure Goblin / Wandering Elite / Double Gold Frenzy / Crystal Raiders)
+  if (world.doubleGoldTimer > 0) {
+    world.doubleGoldTimer = Math.max(0, world.doubleGoldTimer - dt);
+  }
   if (world.wave >= 2 && world.waveState === 'fighting') {
     world.quests.randomEventCooldown -= dt;
     if (world.quests.randomEventCooldown <= 0) {
-      world.quests.randomEventCooldown = 72;
-      const isGoblin = Math.random() < 0.65;
+      world.quests.randomEventCooldown = 68;
+      const roll = Math.random();
       const sx = 1780 + Math.random() * 640;
       const sy = 1860 + Math.random() * 640;
-      if (isGoblin) {
+      if (roll < 0.34) {
         spawnEnemy(world, 'treasure_goblin', 'sanctuary', sx, sy, 1 + world.wave * 0.25, 1);
         world.bannerText = '💰 奇遇事件：盗宝地精潜入圣殿广场，快追杀夺取金币与宝石！';
-      } else {
+      } else if (roll < 0.62) {
         spawnEnemy(world, 'wandering_elite', 'sanctuary', sx, sy, 1 + world.wave * 0.25, 1 + world.wave * 0.1);
         world.bannerText = '⚠️ 奇遇事件：深渊巡逻官空降外围，击败可获得强化石与灵晶！';
+      } else if (roll < 0.84) {
+        world.doubleGoldTimer = 30;
+        world.bannerText = '✨ 奇遇事件：圣殿黄金狂潮！全队击杀金币翻倍 30 秒！';
+      } else {
+        for (let r = 0; r < 2; r++) {
+          const rx = sx + (r === 0 ? -45 : 45);
+          const raider = spawnEnemy(world, r === 0 ? 'wolf_rider' : 'orc_berserker', 'sanctuary', rx, sy, 1.3 + world.wave * 0.28, 1.15);
+          raider.crystalReward = 1;
+          raider.goldReward = 140;
+          applyEnemyAffix(raider, r === 0 ? 'swift' : 'bloodlust');
+        }
+        world.bannerText = '💎 奇遇事件：魔晶劫掠双煞突袭广场，击败必掉灵晶与强化石！';
       }
+      SoundFX.playEventFanfare();
       world.bannerColor = '#facc15';
-      world.bannerTimer = 4.0;
+      world.bannerTimer = 4.2;
     }
   }
 

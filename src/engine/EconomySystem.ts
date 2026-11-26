@@ -864,10 +864,29 @@ export function upgradeSanctuary(world: GameWorldState, hero: HeroEntity): boole
   world.sanctuary.hp = Math.min(world.sanctuary.maxHp, world.sanctuary.hp + 2000);
   world.sanctuary.armor += 4;
   world.sanctuary.hpRegen += 9;
-  if (hero.isLocal) SoundFX.playHolyChime();
-  world.bannerText = `🏰 ${hero.callsign} 升级了圣殿（Lv.${world.sanctuary.level}）：血量/护甲/回血提升！`;
-  world.bannerColor = '#fde047';
-  world.bannerTimer = 3.0;
+  const newTier = world.sanctuary.level >= 10 ? 2 : world.sanctuary.level >= 5 ? 1 : 0;
+  let unlockedAura = false;
+  if (newTier > 0) {
+    for (const h of world.heroes) {
+      if (h.sanctuaryAuraTier < newTier) {
+        h.sanctuaryAuraTier = newTier;
+        recalcHeroStats(h);
+        unlockedAura = true;
+      }
+    }
+  }
+  if (unlockedAura) {
+    SoundFX.playEventFanfare();
+    world.bannerText =
+      newTier >= 2
+        ? `🏛️ 圣殿升至 Lv.${world.sanctuary.level}，觉醒【雅典娜神佑 II】（全队 +22%攻法 / +0.3攻速 / +8%减伤）！`
+        : `🏛️ 圣殿升至 Lv.${world.sanctuary.level}，觉醒【雅典娜神佑 I】（全队 +10%攻法 / +0.14攻速 / +6回蓝）！`;
+  } else {
+    if (hero.isLocal) SoundFX.playHolyChime();
+    world.bannerText = `🏰 ${hero.callsign} 升级了圣殿（Lv.${world.sanctuary.level}）：血量/护甲/回血提升！`;
+  }
+  world.bannerColor = unlockedAura ? '#4ade80' : '#fde047';
+  world.bannerTimer = unlockedAura ? 4.2 : 3.0;
   return true;
 }
 

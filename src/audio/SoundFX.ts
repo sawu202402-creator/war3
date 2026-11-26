@@ -26,6 +26,8 @@ class SoundFXManager {
   private lastHitAt = 0;
   private lastWarnAt = 0;
   private lastComboAt = 0;
+  private lastLaserAt = 0;
+  private lastStoneAt = 0;
 
   constructor() {
     try {
@@ -352,6 +354,35 @@ class SoundFXManager {
     const base = tier >= 3 ? 659.25 : tier === 2 ? 523.25 : 440;
     [base, base * 1.25, base * 1.5].forEach((f, idx) => {
       setTimeout(() => this.oneShotTone(f, f * 1.03, 'triangle', 0.16, 0.085), idx * 42);
+    });
+  }
+
+  public playLaserCharge(): void {
+    const now = performance.now();
+    if (now - this.lastLaserAt < 250) return;
+    this.lastLaserAt = now;
+    this.oneShotTone(190, 760, 'sine', 0.42, 0.085);
+    this.oneShotTone(95, 380, 'triangle', 0.45, 0.06);
+  }
+
+  public playBossEnrage(): void {
+    this.oneShotTone(92, 65, 'sawtooth', 0.65, 0.15);
+    this.oneShotNoise(0.28, 720, 'lowpass', 0.12);
+    setTimeout(() => this.oneShotTone(138.6, 110, 'sawtooth', 0.55, 0.12), 140);
+  }
+
+  public playStoneDrop(): void {
+    const now = performance.now();
+    if (now - this.lastStoneAt < 120) return;
+    this.lastStoneAt = now;
+    [1318.5, 1760, 2093].forEach((f, idx) => {
+      setTimeout(() => this.oneShotTone(f, f * 1.02, 'sine', 0.14, 0.075), idx * 38);
+    });
+  }
+
+  public playEventFanfare(): void {
+    [440, 554.37, 659.25].forEach((f, idx) => {
+      setTimeout(() => this.oneShotTone(f, f * 1.01, 'triangle', 0.24, 0.095), idx * 75);
     });
   }
 }

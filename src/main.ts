@@ -81,6 +81,7 @@ async function bootstrap() {
     onTogglePause: () => modals.togglePause(),
     onPromptAwakening: (hero) => modals.openAwakening(hero),
     onShowSettlement: (victory) => modals.openSettlement(victory),
+    onCloseSettlement: () => modals.close(),
     onNetUiRefresh: () => modals.refreshIfOpen(),
   });
 

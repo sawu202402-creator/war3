@@ -11,6 +11,8 @@ import {
   HeroFastTuple,
   LobbyMember,
   ProjSnapTuple,
+  SquadMvpEntry,
+  SummonSnapTuple,
   TelegraphSnapTuple,
   TowerSnapTuple,
 } from '../net/CoopProtocol';
@@ -72,6 +74,7 @@ export interface EngineCallbacks {
   onTogglePause: () => void;
   onPromptAwakening: (hero: HeroEntity) => void;
   onShowSettlement: (victory: boolean) => void;
+  onCloseSettlement?: () => void;
   onNetUiRefresh?: () => void;
 }
 
@@ -84,6 +87,7 @@ export class GameEngine {
   public worldZoom = 1.0;
   public lockedTargetId: number | null = null;
   public lastRunHonor = 0;
+  public lastSquadStats: SquadMvpEntry[] = [];
 
   private renderer = new War3Renderer();
   private netWorldSyncTimer = 0;
@@ -96,6 +100,7 @@ export class GameEngine {
   private lastAppliedLocalTpSeq = 0;
   private econSyncCounter = 0;
   private hostEconDirty = true;
+  private lastSentBannerText = '';
   private clientEnemyMap = new Map<number, EnemyEntity>();
   private clientDropMap = new Map<number, DropItem>();
   private settlementTriggered = false;
@@ -150,6 +155,8 @@ export class GameEngine {
     this.lastAppliedLocalTpSeq = 0;
     this.econSyncCounter = 0;
     this.hostEconDirty = true;
+    this.lastSentBannerText = '';
+    this.lastSquadStats = [];
     this.clientEnemyMap.clear();
     this.clientDropMap.clear();
     CoopManager.clearMatchSnapshots();
@@ -258,6 +265,8 @@ export class GameEngine {
       bannerTimer: 3.2,
       cameraShake: 0,
       nextEntityId: 1,
+      defeatedBosses: [],
+      doubleGoldTimer: 0,
     };
 
     const local = this.getLocalHero();
@@ -349,6 +358,8 @@ export class GameEngine {
       kills: 0,
       bossKills: 0,
       damageDealt: 0,
+      revives: 0,
+      sanctuaryAuraTier: 0,
       gold: startGold,
       crystal: opts.difficulty >= 3 ? 1 : 0,
       stones: 0,
@@ -438,6 +449,12 @@ export class GameEngine {
     this.world.bannerColor = '#c084fc';
     this.world.bannerTimer = 4.5;
     SoundFX.setBgmMode('combat');
+    if (CoopManager.isActiveCoop() && CoopManager.role === 'host') {
+      CoopManager.broadcastFromHost({
+        type: 'evt_continue_endless',
+        mSeq: CoopManager.currentMatchSeq,
+      });
+    }
   }
 
   public update(dt: number, viewW: number, viewH: number): void {
@@ -594,6 +611,7 @@ export class GameEngine {
             h.reviveTimer -= dt * 2.5;
           }
           if (h.reviveTimer <= 0) {
+            if (helper) helper.revives += 1;
             h.dead = false;
             h.zoneId = 'sanctuary';
             h.x = FOUNTAIN_POS.x + (Math.random() - 0.5) * 40;
@@ -863,17 +881,38 @@ export class GameEngine {
   }
 
   public pickSmartTarget(world: GameWorldState, hero: HeroEntity, maxDist: number) {
-    const candidates = world.enemies.filter(
-      (e) => e.zoneId === hero.zoneId && e.hp > 0 && Math.hypot(e.x - hero.x, e.y - hero.y) <= maxDist + e.radius
-    );
-    if (candidates.length === 0) return null;
-    if (this.input.targetPriority === 'boss') {
-      const boss = candidates.find((c) => c.isBoss || c.isMiniBoss);
-      if (boss) return boss;
-    } else if (this.input.targetPriority === 'low_hp') {
-      return candidates.sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
+    const prio = this.input.targetPriority;
+    let best: typeof world.enemies[number] | null = null;
+    let bestScore = Infinity;
+    let bestBoss: typeof world.enemies[number] | null = null;
+    let bestBossDist = Infinity;
+    const hZone = hero.zoneId;
+    const hx = hero.x;
+    const hy = hero.y;
+
+    for (let i = 0; i < world.enemies.length; i++) {
+      const e = world.enemies[i];
+      if (e.zoneId !== hZone || e.hp <= 0) continue;
+      const dx = e.x - hx;
+      const dy = e.y - hy;
+      const limit = maxDist + e.radius;
+      if (Math.abs(dx) > limit || Math.abs(dy) > limit) continue;
+      const dist = Math.hypot(dx, dy);
+      if (dist > limit) continue;
+
+      if (prio === 'boss' && (e.isBoss || e.isMiniBoss)) {
+        if (dist < bestBossDist) {
+          bestBossDist = dist;
+          bestBoss = e;
+        }
+      }
+      const score = prio === 'low_hp' ? e.hp / e.maxHp : dist;
+      if (score < bestScore) {
+        bestScore = score;
+        best = e;
+      }
     }
-    return candidates.sort((a, b) => Math.hypot(a.x - hero.x, a.y - hero.y) - Math.hypot(b.x - hero.x, b.y - hero.y))[0];
+    return bestBoss || best;
   }
 
   public getSmartAimVector(hero: HeroEntity, range: number): { dx: number; dy: number; distRatio: number } {
@@ -1123,6 +1162,27 @@ export class GameEngine {
     SoundFX.setBgmMode('hub');
 
     const local = this.getLocalHero();
+    const squadList: SquadMvpEntry[] = this.world.heroes
+      .map((h) => ({
+        peerId: h.id,
+        callsign: h.callsign,
+        classId: h.classId,
+        color: h.color,
+        kills: h.kills,
+        bossKills: h.bossKills,
+        damageDealt: Math.round(h.damageDealt),
+        comboPeak: h.comboPeak,
+        revives: h.revives,
+      }))
+      .sort(
+        (a, b) =>
+          b.damageDealt + b.kills * 120 + b.bossKills * 2500 + b.revives * 1200 -
+          (a.damageDealt + a.kills * 120 + a.bossKills * 2500 + a.revives * 1200)
+      );
+    if (CoopManager.role !== 'client' || this.lastSquadStats.length === 0) {
+      this.lastSquadStats = squadList;
+    }
+
     if (local) {
       const diff = DIFFICULTIES[this.world.difficulty];
       const honor = Math.max(30, Math.round((this.world.wave * 18 + (victory ? 220 : 0) + local.kills * 0.35) * diff.honorMultiplier));
@@ -1136,7 +1196,7 @@ export class GameEngine {
         kills: local.kills,
         honorEarned: honor,
         discoveredItems: discovered,
-        defeatedBosses: [],
+        defeatedBosses: this.world.defeatedBosses,
       });
     }
     if (CoopManager.isActiveCoop() && CoopManager.role === 'host') {
@@ -1146,6 +1206,8 @@ export class GameEngine {
       CoopManager.broadcastFromHost({
         type: 'evt_run_finished',
         victory,
+        squadStats: this.lastSquadStats,
+        defeatedBosses: this.world.defeatedBosses,
         mSeq: CoopManager.currentMatchSeq,
       });
     }
@@ -1438,7 +1500,10 @@ export class GameEngine {
       (h.recallTimer > 0 ? 2 : 0) |
       (h.swingAnim > 0 || h.castAnim > 0 ? 4 : 0) |
       (h.stealthTimer > 0 ? 8 : 0) |
-      (h.bladestormTimer > 0 ? 16 : 0);
+      (h.bladestormTimer > 0 ? 16 : 0) |
+      (h.carryingWater ? 32 : 0) |
+      (h.awakeningPrompted ? 64 : 0) |
+      (h.exclusiveUnlocked ? 128 : 0);
     return [
       h.id,
       Math.round(h.x),
@@ -1480,6 +1545,12 @@ export class GameEngine {
       h.comboCount,
       h.comboTier,
       Math.round(h.stats.moveSpeed),
+      h.waterDeliveriesDone,
+      h.exclusiveLevel,
+      Math.round(h.damageDealt),
+      h.revives,
+      Math.round(h.xp),
+      h.sanctuaryAuraTier,
     ];
   }
 
@@ -1591,6 +1662,29 @@ export class GameEngine {
         : [d.id, d.zoneId, Math.round(d.x), Math.round(d.y), Math.max(0, DROP_KIND_TABLE.indexOf(d.kind)), d.amount]
     );
 
+    const summons: SummonSnapTuple[] = w.summons.slice(0, 20).map((s) => [
+      s.id,
+      s.ownerId,
+      s.kind === 'treant' ? 1 : 0,
+      s.zoneId,
+      Math.round(s.x),
+      Math.round(s.y),
+      Math.round(s.hp),
+      Math.round(s.maxHp),
+      +s.facing.toFixed(2),
+      Math.round(s.radius),
+    ]);
+
+    let syncBanner: [string, string, number] | undefined;
+    if (w.bannerTimer > 0 && w.bannerText) {
+      if (w.bannerText !== this.lastSentBannerText) {
+        this.lastSentBannerText = w.bannerText;
+        syncBanner = [w.bannerText, w.bannerColor, Math.max(10, Math.round(w.bannerTimer * 10))];
+      }
+    } else if (this.lastSentBannerText) {
+      this.lastSentBannerText = '';
+    }
+
     CoopManager.broadcastFromHost({
       type: 'world_snap',
       seq: this.netHostSeq,
@@ -1603,8 +1697,14 @@ export class GameEngine {
       sancMaxHp: Math.round(w.sanctuary.maxHp),
       sancLv: w.sanctuary.level,
       sancInvuln: Math.max(0, +w.sanctuary.invulnTimer.toFixed(1)),
+      sancUnderAtk: w.sanctuary.underAttackFlash > 0 ? +w.sanctuary.underAttackFlash.toFixed(2) : 0,
+      banditCleared: w.quests.banditCleared,
+      doubleGoldSec: w.doubleGoldTimer > 0 ? Math.ceil(w.doubleGoldTimer) : 0,
+      ...(includeEcon ? { respawns: { ...w.dungeonRespawns } } : {}),
+      ...(syncBanner ? { banner: syncBanner } : {}),
       heroes: w.heroes.map((h) => this.packHeroFast(h)),
       ...(includeEcon ? { econs: w.heroes.map((h) => this.packHeroEcon(h)) } : {}),
+      summons,
       enemies: enemyTuples,
       projs,
       telegraphs,
@@ -1616,11 +1716,15 @@ export class GameEngine {
   private applyHeroFastTuple(h: HeroEntity, tup: HeroFastTuple, isClientSelf: boolean): void {
     const [, x, y, vx, vy, facing, zoneId, hp, maxHp, mp, maxMp, shield, flags, revTenths] = tup;
     const wasDead = h.dead;
+    const wasWater = h.carryingWater;
     const isDead = Boolean(flags & 1);
     const isRecalling = Boolean(flags & 2);
     const isSwinging = Boolean(flags & 4);
     const isStealth = Boolean(flags & 8);
     const isBladestorm = Boolean(flags & 16);
+    const isCarryingWater = Boolean(flags & 32);
+    const isAwakeningPrompted = Boolean(flags & 64);
+    const isExclusiveUnlocked = Boolean(flags & 128);
 
     h.hp = hp;
     h.stats.maxHp = maxHp;
@@ -1629,11 +1733,20 @@ export class GameEngine {
     h.shield = shield;
     h.dead = isDead;
     h.reviveTimer = revTenths / 10;
+    h.carryingWater = isCarryingWater;
+    if (isExclusiveUnlocked) h.exclusiveUnlocked = true;
 
     if (isClientSelf) {
       if (!isRecalling) h.recallTimer = 0;
       if (isStealth && h.stealthTimer <= 0) h.stealthTimer = 0.25;
       if (isBladestorm && h.bladestormTimer <= 0) h.bladestormTimer = 0.25;
+      if (!wasWater && isCarryingWater && this.world) {
+        addFloatingText(this.world, h.x, h.y - 40, '接满圣泉之水！沿东路送往祭坛 →', '#38bdf8', 14);
+        SoundFX.playHolyChime();
+      }
+      if (isAwakeningPrompted && !h.awakeningUnlocked) {
+        h.awakeningPrompted = true;
+      }
       if (h.zoneId !== zoneId || (wasDead && !isDead)) {
         h.zoneId = zoneId;
         h.x = x;
@@ -1780,7 +1893,15 @@ export class GameEngine {
     }
 
     if (msg.type === 'evt_run_finished') {
+      if (msg.squadStats) this.lastSquadStats = msg.squadStats;
+      if (msg.defeatedBosses) world.defeatedBosses = msg.defeatedBosses;
       if (!this.settlementTriggered) this.finishMatch(msg.victory);
+      return;
+    }
+
+    if (msg.type === 'evt_continue_endless') {
+      this.continueEndless();
+      this.cbs.onCloseSettlement?.();
       return;
     }
 
@@ -1812,6 +1933,24 @@ export class GameEngine {
       world.sanctuary.maxHp = msg.sancMaxHp;
       world.sanctuary.level = msg.sancLv;
       world.sanctuary.invulnTimer = msg.sancInvuln;
+      if (msg.sancUnderAtk !== undefined && msg.sancUnderAtk > 0) {
+        world.sanctuary.underAttackFlash = Math.max(world.sanctuary.underAttackFlash, msg.sancUnderAtk);
+      }
+      if (msg.banditCleared) {
+        world.quests.banditCleared = true;
+        world.quests.shopDiscount = 0.15;
+      }
+      if (msg.doubleGoldSec !== undefined) {
+        world.doubleGoldTimer = msg.doubleGoldSec;
+      }
+      if (msg.respawns) {
+        world.dungeonRespawns = msg.respawns;
+      }
+      if (msg.banner) {
+        world.bannerText = msg.banner[0];
+        world.bannerColor = msg.banner[1];
+        world.bannerTimer = msg.banner[2] / 10;
+      }
       if ((msg.waveState === 'ended' || msg.sancHp <= 0) && !this.settlementTriggered) {
         this.finishMatch(msg.sancHp > 0);
       }
@@ -1844,23 +1983,34 @@ export class GameEngine {
       if (msg.econs) {
         let localUiChanged = false;
         for (const et of msg.econs) {
-          const [id, lv, gold, crystal, stones, kills, tpSeq, inv, stash, cds, flashCd, pots, awakenId, comboC, comboT, moveSpd] = et;
+          const [id, lv, gold, crystal, stones, kills, tpSeq, inv, stash, cds, flashCd, pots, awakenId, comboC, comboT, moveSpd, waterDone, exLv, dmgDealt, revives, xpVal, auraTier] = et;
           const h = world.heroes.find((xh) => xh.id === id);
           if (!h) continue;
 
           const invChanged =
             h.inventory.some((x, idx) => x !== inv[idx]) || h.stash.some((x, idx) => x !== stash[idx]);
-          const statDirty = invChanged || h.level !== lv || h.awakeningBranchId !== awakenId;
-          if (h.isLocal && (invChanged || h.gold !== gold || h.crystal !== crystal || h.stones !== stones)) {
+          const statDirty =
+            invChanged ||
+            h.level !== lv ||
+            h.awakeningBranchId !== awakenId ||
+            h.sanctuaryAuraTier !== auraTier ||
+            h.exclusiveLevel !== exLv;
+          if (h.isLocal && (invChanged || h.gold !== gold || h.crystal !== crystal || h.stones !== stones || h.waterDeliveriesDone !== waterDone)) {
             localUiChanged = true;
           }
 
           h.level = lv;
+          h.xp = xpVal;
           h.nextXp = xpForLevel(lv);
           h.gold = gold;
           h.crystal = crystal;
           h.stones = stones;
           h.kills = kills;
+          h.damageDealt = dmgDealt;
+          h.revives = revives;
+          h.waterDeliveriesDone = waterDone;
+          h.exclusiveLevel = exLv;
+          h.sanctuaryAuraTier = auraTier;
           h.inventory = inv.slice();
           h.stash = stash.slice();
           h.skillCds = [cds[0], cds[1], cds[2], cds[3]];
@@ -1898,6 +2048,29 @@ export class GameEngine {
         if (localUiChanged) {
           this.cbs.onNetUiRefresh?.();
         }
+      }
+
+      if (msg.summons) {
+        world.summons = msg.summons.map(([sid, ownerId, kCode, sZone, sx, sy, shp, smaxHp, sFacing, sRad]) => ({
+          id: sid,
+          ownerId,
+          kind: kCode === 1 ? 'treant' : 'illusion',
+          name: kCode === 1 ? '自然树人' : '疾风幻象',
+          zoneId: sZone,
+          x: sx,
+          y: sy,
+          radius: sRad,
+          facing: sFacing,
+          hp: shp,
+          maxHp: smaxHp,
+          ad: 0,
+          atkSpeed: 1,
+          attackTimer: 0,
+          moveSpeed: 300,
+          life: 10,
+          maxLife: 10,
+          color: kCode === 1 ? '#4ade80' : '#f43f5e',
+        }));
       }
 
       // Sync enemies with velocity dead-reckoning & death bursts
