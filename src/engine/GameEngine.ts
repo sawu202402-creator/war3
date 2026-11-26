@@ -1,6 +1,19 @@
 import { SoundFX } from '../audio/SoundFX';
 import { DIFFICULTIES, getHeroClassDef } from '../data/heroes';
-import { ATHENA_POS, FOUNTAIN_POS, HERO_FORMATION_OFFSETS, HERO_SPAWN_POS, PORTALS, TOWER_SLOTS, WORLD_HEIGHT, WORLD_WIDTH, ZONES } from '../data/worldMap';
+import {
+  ATHENA_POS,
+  FOUNTAIN_POS,
+  FOUNTAIN_SPAWN_POS,
+  HERO_COLLISION_RADIUS,
+  HERO_FORMATION_OFFSETS,
+  HERO_SPAWN_POS,
+  PORTALS,
+  TOWER_SLOTS,
+  WORLD_HEIGHT,
+  WORLD_WIDTH,
+  ZONES,
+  resolveWorldCollision,
+} from '../data/worldMap';
 import { SaveManager } from '../meta/SaveManager';
 import { CoopManager } from '../net/CoopManager';
 import {
@@ -32,6 +45,7 @@ import {
   castActiveItemSkill,
   castFlashSkill,
   castHeroSkill,
+  getHeroAttackLockDuration,
   performBasicAttack,
   recalcHeroStats,
   startRecall,
@@ -335,8 +349,12 @@ export class GameEngine {
     const save = SaveManager.get();
     const startGold = 200 + save.talents.startGold * 120 + (opts.difficulty >= 3 ? 100 : 0);
     const spawnOff = HERO_FORMATION_OFFSETS[opts.slot % HERO_FORMATION_OFFSETS.length];
-    const spawnX = HERO_SPAWN_POS.x + spawnOff.x;
-    const spawnY = HERO_SPAWN_POS.y + spawnOff.y;
+    const spawnPos = resolveWorldCollision(
+      'sanctuary',
+      HERO_SPAWN_POS.x + spawnOff.x,
+      HERO_SPAWN_POS.y + spawnOff.y,
+      HERO_COLLISION_RADIUS
+    );
     const h: HeroEntity = {
       id: opts.id,
       slot: opts.slot,
@@ -346,8 +364,8 @@ export class GameEngine {
       isBot: opts.isBot,
       aiMode: 'guard_base',
       color: def.color,
-      x: spawnX,
-      y: spawnY,
+      x: spawnPos.x,
+      y: spawnPos.y,
       vx: 0,
       vy: 0,
       facing: -Math.PI / 2,
@@ -386,6 +404,7 @@ export class GameEngine {
       recallTimer: 0,
       activeItemCd: 0,
       attackCd: 0,
+      attackLockTimer: 0,
       attackCombo: 0,
       swingAnim: 0,
       hitFlash: 0,
@@ -416,8 +435,8 @@ export class GameEngine {
       comboTimer: 0,
       comboTier: 0,
       comboPeak: 0,
-      prevX: spawnX,
-      prevY: spawnY,
+      prevX: spawnPos.x,
+      prevY: spawnPos.y,
       moveSpeedNorm: 0,
       animPhase: opts.slot * 1.1,
       flipVisual: 1,
@@ -614,8 +633,16 @@ export class GameEngine {
             if (helper) helper.revives += 1;
             h.dead = false;
             h.zoneId = 'sanctuary';
-            h.x = FOUNTAIN_POS.x + (Math.random() - 0.5) * 40;
-            h.y = FOUNTAIN_POS.y + (Math.random() - 0.5) * 40;
+            const revPos = resolveWorldCollision(
+              'sanctuary',
+              FOUNTAIN_SPAWN_POS.x + (Math.random() - 0.5) * 40,
+              FOUNTAIN_SPAWN_POS.y + (Math.random() - 0.5) * 24,
+              HERO_COLLISION_RADIUS,
+              world.towers,
+              false
+            );
+            h.x = revPos.x;
+            h.y = revPos.y;
             h.teleportSeq = (h.teleportSeq || 0) + 1;
             h.hp = h.stats.maxHp;
             h.mp = h.stats.maxMp;
@@ -633,6 +660,7 @@ export class GameEngine {
       if (h.flashCd > 0) h.flashCd = Math.max(0, h.flashCd - dt);
       if (h.activeItemCd > 0) h.activeItemCd = Math.max(0, h.activeItemCd - dt);
       if (h.attackCd > 0) h.attackCd = Math.max(0, h.attackCd - dt);
+      if (h.attackLockTimer > 0) h.attackLockTimer = Math.max(0, h.attackLockTimer - dt);
       if (h.swingAnim > 0) h.swingAnim -= dt;
       if (h.hitFlash > 0) h.hitFlash -= dt;
       if (h.stunTimer > 0) h.stunTimer -= dt;
@@ -738,8 +766,16 @@ export class GameEngine {
               Math.hypot(e.x - h.omnislashTargetX, e.y - h.omnislashTargetY) <= 280
           );
           if (target) {
-            h.x = target.x + (Math.random() - 0.5) * 30;
-            h.y = target.y + (Math.random() - 0.5) * 30;
+            const oPos = resolveWorldCollision(
+              h.zoneId,
+              target.x + (Math.random() - 0.5) * 30,
+              target.y + (Math.random() - 0.5) * 30,
+              HERO_COLLISION_RADIUS,
+              world.towers,
+              false
+            );
+            h.x = oPos.x;
+            h.y = oPos.y;
             h.teleportSeq = (h.teleportSeq || 0) + 1;
             const dmg = 165 + h.level * 68 + h.stats.ad * 1.15;
             applyDamageToEnemy(world, target, dmg, { attacker: h, forceCrit: true, onEnemyKilled: onKilled });
@@ -753,8 +789,16 @@ export class GameEngine {
         h.recallTimer -= dt;
         if (h.recallTimer <= 0) {
           h.zoneId = 'sanctuary';
-          h.x = FOUNTAIN_POS.x;
-          h.y = FOUNTAIN_POS.y;
+          const rcPos = resolveWorldCollision(
+            'sanctuary',
+            FOUNTAIN_SPAWN_POS.x,
+            FOUNTAIN_SPAWN_POS.y,
+            HERO_COLLISION_RADIUS,
+            world.towers,
+            false
+          );
+          h.x = rcPos.x;
+          h.y = rcPos.y;
           h.teleportSeq = (h.teleportSeq || 0) + 1;
           this.hostEconDirty = true;
           world.vfx.push({ kind: 'teleport', x: h.x, y: h.y, radius: 52, color: '#38bdf8', life: 0.5, maxLife: 0.5 });
@@ -788,10 +832,101 @@ export class GameEngine {
       }
     }
 
+    const hasMoveInput = Math.hypot(dx, dy) > 0.05;
+    const manualAttack = this.input.isAttackPressed();
     hero.vx = 0;
     hero.vy = 0;
 
-    if (dx !== 0 || dy !== 0) {
+    // Strictly plant hero during active attack/cast windup (no run-and-gun sliding)
+    if (hero.attackLockTimer > 0) {
+      const lockedPos = resolveWorldCollision(hero.zoneId, hero.x, hero.y, HERO_COLLISION_RADIUS, world.towers, false);
+      hero.x = lockedPos.x;
+      hero.y = lockedPos.y;
+      return;
+    }
+
+    const resolveAimVector = (target: typeof world.enemies[number] | null) => {
+      if (target) {
+        const tx = target.x - hero.x;
+        const ty = target.y - hero.y;
+        const d = Math.hypot(tx, ty) || 1;
+        return { ax: tx / d, ay: ty / d };
+      }
+      if (!this.input.usingTouch && this.input.mouseDown) {
+        const mx = this.camX + this.input.mouseScreenX / this.worldZoom - hero.x;
+        const my = this.camY + this.input.mouseScreenY / this.worldZoom - hero.y;
+        const md = Math.hypot(mx, my) || 1;
+        return { ax: mx / md, ay: my / md };
+      }
+      return { ax: Math.cos(hero.facing), ay: Math.sin(hero.facing) };
+    };
+
+    const triggerLocalBasicAttack = (ax: number, ay: number) => {
+      hero.recallTimer = 0;
+      hero.vx = 0;
+      hero.vy = 0;
+      hero.attackLockTimer = getHeroAttackLockDuration(hero);
+      if (CoopManager.isActiveCoop() && CoopManager.role === 'client') {
+        hero.attackCd = 1 / Math.max(0.4, hero.stats.atkSpeed);
+        hero.swingAnim = 0.28;
+        hero.swingDuration = 0.28;
+        hero.facing = Math.atan2(ay, ax);
+        CoopManager.sendToHost({
+          type: 'cmd_attack',
+          ownerId: hero.id,
+          dirX: ax,
+          dirY: ay,
+          mSeq: CoopManager.currentMatchSeq,
+        });
+      } else {
+        const onKilled = (e: typeof world.enemies[number], k?: HeroEntity) => handleEnemyDeathDrops(world, e, k);
+        performBasicAttack(world, hero, ax, ay, onKilled);
+      }
+    };
+
+    // Manual Attack / Hold-Attack Chase (commits to stationary swing when firing)
+    if (manualAttack && hero.bladestormTimer <= 0) {
+      if (!hasMoveInput && this.input.attackHeld) {
+        const inRangeTarget = this.pickSmartTarget(world, hero, hero.stats.attackRange + 28);
+        if (!inRangeTarget) {
+          const chaseTarget = this.pickSmartTarget(world, hero, Math.max(hero.stats.attackRange + 240, 360));
+          if (chaseTarget) {
+            const tx = chaseTarget.x - hero.x;
+            const ty = chaseTarget.y - hero.y;
+            const d = Math.hypot(tx, ty) || 1;
+            if (d > hero.stats.attackRange + chaseTarget.radius) {
+              hero.recallTimer = 0;
+              hero.vx = (tx / d) * hero.stats.moveSpeed * 0.92;
+              hero.vy = (ty / d) * hero.stats.moveSpeed * 0.92;
+              const nextPos = resolveWorldCollision(
+                hero.zoneId,
+                hero.x + hero.vx * dt,
+                hero.y + hero.vy * dt,
+                HERO_COLLISION_RADIUS,
+                world.towers,
+                false
+              );
+              hero.x = nextPos.x;
+              hero.y = nextPos.y;
+              hero.facing = Math.atan2(ty, tx);
+              return;
+            }
+          }
+        }
+      }
+      if (hero.attackCd <= 0) {
+        const target = this.pickSmartTarget(world, hero, hero.stats.attackRange + 95);
+        const { ax, ay } = resolveAimVector(target);
+        triggerLocalBasicAttack(ax, ay);
+        const settled = resolveWorldCollision(hero.zoneId, hero.x, hero.y, HERO_COLLISION_RADIUS, world.towers, false);
+        hero.x = settled.x;
+        hero.y = settled.y;
+        return;
+      }
+    }
+
+    // Movement Phase: moving cancels any auto-attack this frame (no firing while walking)
+    if (hasMoveInput) {
       hero.recallTimer = 0;
       const priestAura = world.heroes.some(
         (p) => !p.dead && p.classId === 'priest' && p.zoneId === hero.zoneId && Math.hypot(p.x - hero.x, p.y - hero.y) <= 450
@@ -799,83 +934,33 @@ export class GameEngine {
       const spd = hero.stats.moveSpeed * (priestAura ? 1.15 : 1.0);
       hero.vx = dx * spd;
       hero.vy = dy * spd;
-      hero.x += hero.vx * dt;
-      hero.y += hero.vy * dt;
+      const moved = resolveWorldCollision(
+        hero.zoneId,
+        hero.x + hero.vx * dt,
+        hero.y + hero.vy * dt,
+        HERO_COLLISION_RADIUS,
+        world.towers,
+        false
+      );
+      hero.x = moved.x;
+      hero.y = moved.y;
       if (hero.swingAnim <= 0.08) {
         hero.facing = Math.atan2(dy, dx);
       }
+      return;
     }
 
-    // Hold-Attack Auto-Chase toward nearby target
-    if (this.input.attackHeld && dx === 0 && dy === 0) {
-      const chaseTarget = this.pickSmartTarget(world, hero, Math.max(hero.stats.attackRange + 240, 360));
-      if (chaseTarget) {
-        const tx = chaseTarget.x - hero.x;
-        const ty = chaseTarget.y - hero.y;
-        const d = Math.hypot(tx, ty) || 1;
-        if (d > hero.stats.attackRange + chaseTarget.radius) {
-          hero.recallTimer = 0;
-          hero.vx = (tx / d) * hero.stats.moveSpeed * 0.92;
-          hero.vy = (ty / d) * hero.stats.moveSpeed * 0.92;
-          hero.x += hero.vx * dt;
-          hero.y += hero.vy * dt;
-          hero.facing = Math.atan2(ty, tx);
-          return;
-        }
-      }
-    }
+    // Stationary Auto-Attack Phase (fires ONLY when standing still and unlocked)
+    const basePos = resolveWorldCollision(hero.zoneId, hero.x, hero.y, HERO_COLLISION_RADIUS, world.towers, false);
+    hero.x = basePos.x;
+    hero.y = basePos.y;
 
-    // Clamp local hero softly inside current zone rect on client & host
-    const zr = ZONES[hero.zoneId]?.rect;
-    if (zr) {
-      hero.x = Math.max(zr.x + 18, Math.min(zr.x + zr.w - 18, hero.x));
-      hero.y = Math.max(zr.y + 18, Math.min(zr.y + zr.h - 18, hero.y));
-    }
-
-    // Basic Attack: Automatic when enemies are within range (preserving Recall & Windwalk stealth),
-    // plus manual override via Touch Main Attack / Space / Left-Click
-    const manualAttack = this.input.isAttackPressed();
-    const canAutoAttack = hero.recallTimer <= 0 && hero.stealthTimer <= 0;
-    if (hero.attackCd <= 0 && (manualAttack || canAutoAttack)) {
-      const target = this.pickSmartTarget(
-        world,
-        hero,
-        manualAttack ? hero.stats.attackRange + 95 : hero.stats.attackRange + 28
-      );
-      if (target || manualAttack) {
-        hero.recallTimer = 0;
-        let ax = Math.cos(hero.facing);
-        let ay = Math.sin(hero.facing);
-
-        if (target) {
-          const tx = target.x - hero.x;
-          const ty = target.y - hero.y;
-          const d = Math.hypot(tx, ty) || 1;
-          ax = tx / d;
-          ay = ty / d;
-        } else if (!this.input.usingTouch && this.input.mouseDown) {
-          const mx = this.camX + this.input.mouseScreenX / this.worldZoom - hero.x;
-          const my = this.camY + this.input.mouseScreenY / this.worldZoom - hero.y;
-          const md = Math.hypot(mx, my) || 1;
-          ax = mx / md;
-          ay = my / md;
-        }
-
-        if (CoopManager.isActiveCoop() && CoopManager.role === 'client') {
-          hero.attackCd = 1 / Math.max(0.4, hero.stats.atkSpeed);
-          hero.swingAnim = 0.24;
-          hero.facing = Math.atan2(ay, ax);
-          CoopManager.sendToHost({
-            type: 'cmd_attack',
-            ownerId: hero.id,
-            dirX: ax,
-            dirY: ay,
-            mSeq: CoopManager.currentMatchSeq,
-          });
-        } else {
-          const onKilled = (e: typeof world.enemies[number], k?: HeroEntity) => handleEnemyDeathDrops(world, e, k);
-          performBasicAttack(world, hero, ax, ay, onKilled);
-        }
+    const canAutoAttack = hero.recallTimer <= 0 && hero.stealthTimer <= 0 && hero.bladestormTimer <= 0;
+    if (hero.attackCd <= 0 && canAutoAttack) {
+      const target = this.pickSmartTarget(world, hero, hero.stats.attackRange + 28);
+      if (target) {
+        const { ax, ay } = resolveAimVector(target);
+        triggerLocalBasicAttack(ax, ay);
       }
     }
   }
@@ -1255,6 +1340,9 @@ export class GameEngine {
 
       const rawNorm = Math.min(1, dd / safeDt / Math.max(120, h.stats.moveSpeed));
       h.moveSpeedNorm += (rawNorm - h.moveSpeedNorm) * heroSmoothing;
+      if (h.attackLockTimer > 0 && dd < 0.5) {
+        h.moveSpeedNorm = Math.max(0, h.moveSpeedNorm - dt * 18);
+      }
       h.animPhase += dt * (2.6 + h.moveSpeedNorm * 9.8);
 
       const cosF = Math.cos(h.facing);
@@ -1359,21 +1447,35 @@ export class GameEngine {
         const step = Math.min(dt, 0.13 - age);
         const damp = age <= 0.075 ? 1 : Math.max(0, 1 - (age - 0.075) * 14);
         h.extrapAge = age + step;
-        const zr = ZONES[h.zoneId]?.rect;
-        const nx = h.netTx + nvx * damp * step;
-        const ny = h.netTy + nvy * damp * step;
-        h.netTx = zr ? Math.max(zr.x + 18, Math.min(zr.x + zr.w - 18, nx)) : nx;
-        h.netTy = zr ? Math.max(zr.y + 18, Math.min(zr.y + zr.h - 18, ny)) : ny;
+        const solvedTx = resolveWorldCollision(
+          h.zoneId,
+          h.netTx + nvx * damp * step,
+          h.netTy + nvy * damp * step,
+          HERO_COLLISION_RADIUS,
+          world.towers,
+          false
+        );
+        h.netTx = solvedTx.x;
+        h.netTy = solvedTx.y;
       }
 
       const err = Math.hypot(h.netTx - h.x, h.netTy - h.y);
       if (err > 280) {
-        h.x = h.netTx;
-        h.y = h.netTy;
+        const snapPos = resolveWorldCollision(h.zoneId, h.netTx, h.netTy, HERO_COLLISION_RADIUS, world.towers, false);
+        h.x = snapPos.x;
+        h.y = snapPos.y;
       } else {
         const posLerp = 1 - Math.exp(-(err > 65 ? 24 : 18) * dt);
-        h.x += (h.netTx - h.x) * posLerp;
-        h.y += (h.netTy - h.y) * posLerp;
+        const solvedLerp = resolveWorldCollision(
+          h.zoneId,
+          h.x + (h.netTx - h.x) * posLerp,
+          h.y + (h.netTy - h.y) * posLerp,
+          HERO_COLLISION_RADIUS,
+          world.towers,
+          false
+        );
+        h.x = solvedLerp.x;
+        h.y = solvedLerp.y;
       }
       if (h.netAngle !== undefined) {
         h.facing = this.lerpAngle(h.facing, h.netAngle, angLerp);
@@ -1808,8 +1910,16 @@ export class GameEngine {
         if ((msg.tpSeq ?? 0) < (actor.teleportSeq || 0)) return;
         if (actor.dead || actor.omnislashTimer > 0) return;
 
-        actor.netTx = msg.x;
-        actor.netTy = msg.y;
+        const resolvedClientPos = resolveWorldCollision(
+          actor.zoneId,
+          msg.x,
+          msg.y,
+          HERO_COLLISION_RADIUS,
+          world.towers,
+          false
+        );
+        actor.netTx = resolvedClientPos.x;
+        actor.netTy = resolvedClientPos.y;
         actor.netVx = msg.vx;
         actor.netVy = msg.vy;
         actor.vx = msg.vx;
@@ -1817,12 +1927,14 @@ export class GameEngine {
         actor.netAngle = msg.facing;
         actor.extrapAge = 0;
         if (msg.vx !== 0 || msg.vy !== 0) actor.recallTimer = 0;
-        if (Math.hypot(msg.x - actor.x, msg.y - actor.y) > 260) {
-          actor.x = msg.x;
-          actor.y = msg.y;
+        if (Math.hypot(resolvedClientPos.x - actor.x, resolvedClientPos.y - actor.y) > 260) {
+          actor.x = resolvedClientPos.x;
+          actor.y = resolvedClientPos.y;
         }
       } else if (msg.type === 'cmd_attack') {
-        if (actor.attackCd <= 0) performBasicAttack(world, actor, msg.dirX, msg.dirY, onKilled);
+        if (actor.attackCd <= 0 && !actor.dead && actor.stunTimer <= 0 && actor.bladestormTimer <= 0) {
+          performBasicAttack(world, actor, msg.dirX, msg.dirY, onKilled);
+        }
       } else if (msg.type === 'cmd_skill') {
         castHeroSkill(world, actor, msg.slot, msg.dirX, msg.dirY, msg.distRatio, onKilled);
         this.hostEconDirty = true;

@@ -1,11 +1,27 @@
 import { ENEMY_ARCHETYPES } from '../data/waves';
 import { getHeroClassDef } from '../data/heroes';
 import { getItemDef, SET_BONUSES } from '../data/items';
-import { ATHENA_POS, FOUNTAIN_POS, ZONES, clampToRect } from '../data/worldMap';
+import { ATHENA_POS, FOUNTAIN_POS, HERO_COLLISION_RADIUS, ZONES, resolveLinearDash, resolveWorldCollision } from '../data/worldMap';
 import { SoundFX } from '../audio/SoundFX';
 import { SaveManager } from '../meta/SaveManager';
 import { StatBlock } from '../types';
 import { EnemyEntity, GameWorldState, HeroEntity } from './GameState';
+
+const STATIONARY_CAST_SKILLS = new Set([
+  'am_flamewave',
+  'am_frostnova',
+  'am_blizzard',
+  'rng_volley',
+  'rng_starfall',
+  'pr_holychain',
+  'pr_treant',
+  'pr_sanctuary',
+]);
+
+export function getHeroAttackLockDuration(hero: HeroEntity): number {
+  const interval = 1 / Math.max(0.4, hero.stats.atkSpeed);
+  return Math.max(0.11, Math.min(0.24, interval * 0.34));
+}
 
 export function xpForLevel(level: number): number {
   return Math.round(130 + Math.pow(level, 1.55) * 85);
@@ -524,6 +540,9 @@ export function performBasicAttack(
   const def = getHeroClassDef(hero.classId);
   hero.facing = Math.atan2(dirY, dirX);
   hero.attackCd = 1 / hero.stats.atkSpeed;
+  hero.attackLockTimer = getHeroAttackLockDuration(hero);
+  hero.vx = 0;
+  hero.vy = 0;
   hero.swingAnim = 0.28;
   hero.swingDuration = 0.28;
   hero.attackCombo = (hero.attackCombo + 1) % 3;
@@ -693,6 +712,11 @@ export function castHeroSkill(
   hero.recallTimer = 0;
   hero.castAnim = 0.42;
   hero.swingDuration = 0.42;
+  if (STATIONARY_CAST_SKILLS.has(sk.id)) {
+    hero.attackLockTimer = Math.max(hero.attackLockTimer, 0.14);
+    hero.vx = 0;
+    hero.vy = 0;
+  }
 
   if (hero.classId === 'archmage') {
     hero.passiveStacks = Math.min(5, hero.passiveStacks + 1);
@@ -725,13 +749,12 @@ export function castHeroSkill(
 
   const targetX = hero.x + nx * Math.min(sk.range, Math.max(60, sk.range * Math.max(0.45, distRatio)));
   const targetY = hero.y + ny * Math.min(sk.range, Math.max(60, sk.range * Math.max(0.45, distRatio)));
-  const zoneRect = ZONES[hero.zoneId].rect;
 
   // Dispatch exact 5x4 hero skill logic
   switch (sk.id) {
     // PALADIN
     case 'pal_charge': {
-      const dest = clampToRect(hero.x + nx * sk.range, hero.y + ny * sk.range, 22, zoneRect);
+      const dest = resolveLinearDash(hero.zoneId, hero.x, hero.y, hero.x + nx * sk.range, hero.y + ny * sk.range, HERO_COLLISION_RADIUS, world.towers);
       const mult = hero.awakeningBranchId === 'pal_retribution' ? 1.55 : 1.0;
       for (const e of world.enemies) {
         if (e.zoneId !== hero.zoneId || e.hp <= 0) continue;
@@ -744,6 +767,7 @@ export function castHeroSkill(
       pushDashAfterimages(hero, hero.x, hero.y, dest.x, dest.y);
       hero.x = dest.x;
       hero.y = dest.y;
+      hero.attackLockTimer = 0;
       if (hero.isLocal) {
         world.cameraShake = Math.max(world.cameraShake, 3.2);
         SoundFX.playSwordSlash();
@@ -808,7 +832,7 @@ export function castHeroSkill(
       const inherit = hero.awakeningBranchId === 'bm_phantom' ? 0.65 : 0.45;
       for (let i = 0; i < count; i++) {
         const ang = (Math.PI * 2 * i) / count;
-        const p = clampToRect(hero.x + Math.cos(ang) * 55, hero.y + Math.sin(ang) * 55, 18, zoneRect);
+        const p = resolveWorldCollision(hero.zoneId, hero.x + Math.cos(ang) * 55, hero.y + Math.sin(ang) * 55, 18, world.towers, false);
         world.summons.push({
           id: world.nextEntityId++,
           ownerId: hero.id,
@@ -885,7 +909,7 @@ export function castHeroSkill(
       return true;
     }
     case 'am_blink': {
-      const dest = clampToRect(targetX, targetY, 20, zoneRect);
+      const dest = resolveWorldCollision(hero.zoneId, targetX, targetY, HERO_COLLISION_RADIUS, world.towers, false);
       const pts = [
         { x: hero.x, y: hero.y },
         { x: dest.x, y: dest.y },
@@ -900,6 +924,7 @@ export function castHeroSkill(
       }
       hero.x = dest.x;
       hero.y = dest.y;
+      hero.attackLockTimer = 0;
       pushDashAfterimages(hero, pts[0].x, pts[0].y, dest.x, dest.y);
       hero.mp = Math.min(hero.stats.maxMp, hero.mp + hero.stats.maxMp * 0.15);
       if (hero.isLocal) SoundFX.playTeleport();
@@ -959,7 +984,7 @@ export function castHeroSkill(
       return true;
     }
     case 'rng_leap': {
-      const dest = clampToRect(hero.x + nx * sk.range, hero.y + ny * sk.range, 20, zoneRect);
+      const dest = resolveWorldCollision(hero.zoneId, hero.x + nx * sk.range, hero.y + ny * sk.range, HERO_COLLISION_RADIUS, world.towers, false);
       for (const e of world.enemies) {
         if (e.zoneId === hero.zoneId && e.hp > 0 && Math.hypot(e.x - hero.x, e.y - hero.y) <= 130) {
           e.slowTimer = Math.max(e.slowTimer, 3.0);
@@ -971,6 +996,7 @@ export function castHeroSkill(
       pushDashAfterimages(hero, hero.x, hero.y, dest.x, dest.y);
       hero.x = dest.x;
       hero.y = dest.y;
+      hero.attackLockTimer = 0;
       hero.warsongTimer = Math.max(hero.warsongTimer, 3.5);
       recalcHeroStats(hero);
       if (hero.isLocal) SoundFX.playTeleport();
@@ -1047,7 +1073,7 @@ export function castHeroSkill(
       const mult = hero.awakeningBranchId === 'pr_druid' ? 1.65 : 1.0;
       for (let i = 0; i < count; i++) {
         const ang = (Math.PI * 2 * i) / count;
-        const p = clampToRect(targetX + Math.cos(ang) * 44, targetY + Math.sin(ang) * 44, 24, zoneRect);
+        const p = resolveWorldCollision(hero.zoneId, targetX + Math.cos(ang) * 44, targetY + Math.sin(ang) * 44, 24, world.towers, false);
         world.summons.push({
           id: world.nextEntityId++,
           ownerId: hero.id,
@@ -1115,12 +1141,13 @@ export function castFlashSkill(world: GameWorldState, hero: HeroEntity, dirX: nu
   const len = Math.hypot(dirX, dirY) || 1;
   const nx = dirX / len;
   const ny = dirY / len;
-  const dest = clampToRect(hero.x + nx * 270, hero.y + ny * 270, 20, ZONES[hero.zoneId].rect);
+  const dest = resolveWorldCollision(hero.zoneId, hero.x + nx * 270, hero.y + ny * 270, HERO_COLLISION_RADIUS, world.towers, false);
   world.vfx.push({ kind: 'teleport', x: hero.x, y: hero.y, radius: 38, color: '#fbbf24', life: 0.35, maxLife: 0.35 });
   pushDashAfterimages(hero, hero.x, hero.y, dest.x, dest.y);
   hero.castAnim = 0.25;
   hero.x = dest.x;
   hero.y = dest.y;
+  hero.attackLockTimer = 0;
   hero.teleportSeq = (hero.teleportSeq || 0) + 1;
   hero.flashCd = 18;
   hero.stunTimer = 0;

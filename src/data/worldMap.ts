@@ -6,6 +6,10 @@ export const WORLD_HEIGHT = 4200;
 export const CONVERGENCE_POS = { x: 2100, y: 1890, radius: 118 };
 export const ATHENA_POS = { x: 2100, y: 2460, radius: 56 };
 export const FOUNTAIN_POS = { x: 2330, y: 2460, radius: 84 };
+export const FOUNTAIN_SPAWN_POS = { x: FOUNTAIN_POS.x, y: FOUNTAIN_POS.y - 74 };
+export const HERO_COLLISION_RADIUS = 18;
+export const TOWER_BASE_COLLISION_RADIUS = 26;
+export const TOWER_BUILT_COLLISION_RADIUS = 34;
 export const HERO_SPAWN_POS = { x: 2100, y: 2215 };
 export const HERO_FORMATION_OFFSETS: { x: number; y: number }[] = [
   { x: 0, y: 0 },
@@ -225,9 +229,9 @@ export const PORTALS: PortalDef[] = [
 
 // 中心圣殿与北关汇合隘口装饰物（确保完全避开三列兵线与运水东道）
 export const WORLD_PROPS: WorldPropDef[] = [
-  // 汇合隘口火盆与雕柱
-  { id: 'braz_c1', kind: 'brazier', x: 1975, y: 1815, radius: 18, color: '#fb923c' },
-  { id: 'braz_c2', kind: 'brazier', x: 2225, y: 1815, radius: 18, color: '#fb923c' },
+  // 汇合隘口火盆与雕柱（避开左右斜向汇合道路）
+  { id: 'braz_c1', kind: 'brazier', x: 1935, y: 1640, radius: 18, color: '#fb923c' },
+  { id: 'braz_c2', kind: 'brazier', x: 2265, y: 1640, radius: 18, color: '#fb923c' },
   { id: 'pil_n1', kind: 'pillar', x: 1955, y: 1985, radius: 20, color: '#eab308' },
   { id: 'pil_n2', kind: 'pillar', x: 2245, y: 1985, radius: 20, color: '#eab308' },
   // 圣殿广场四角火盆
@@ -286,4 +290,234 @@ export function clampToRect(x: number, y: number, r: number, rect: Rect): { x: n
     x: Math.max(rect.x + r, Math.min(rect.x + rect.w - r, x)),
     y: Math.max(rect.y + r, Math.min(rect.y + rect.h - r, y)),
   };
+}
+
+export interface SolidCollider {
+  id: string;
+  zoneId: ZoneId;
+  x: number;
+  y: number;
+  radius: number;
+  kind: 'athena' | 'fountain' | 'altar' | 'gate' | 'prop';
+  blocksEnemies: boolean;
+}
+
+export interface CollisionResult {
+  x: number;
+  y: number;
+  collided: boolean;
+  normalX: number;
+  normalY: number;
+}
+
+const PROP_COLLIDER_RADIUS: Record<WorldPropDef['kind'], number> = {
+  anvil: 24,
+  ruin: 24,
+  tent: 28,
+  tree: 22,
+  pillar: 20,
+  crystal: 19,
+  brazier: 18,
+  banner: 12,
+};
+
+function buildStaticZoneColliders(): Record<ZoneId, SolidCollider[]> {
+  const map = {} as Record<ZoneId, SolidCollider[]>;
+  for (const z of ZONE_LIST) {
+    map[z.id] = [];
+  }
+
+  map.sanctuary.push(
+    { id: 'athena', zoneId: 'sanctuary', x: ATHENA_POS.x, y: ATHENA_POS.y, radius: 52, kind: 'athena', blocksEnemies: true },
+    { id: 'fountain', zoneId: 'sanctuary', x: FOUNTAIN_POS.x, y: FOUNTAIN_POS.y, radius: 44, kind: 'fountain', blocksEnemies: true },
+    { id: 'altar', zoneId: 'sanctuary', x: WATER_ALTAR_POS.x, y: WATER_ALTAR_POS.y, radius: 40, kind: 'altar', blocksEnemies: true }
+  );
+
+  for (const lane of WAVE_LANES) {
+    map.sanctuary.push({
+      id: `gate_${lane.id}`,
+      zoneId: 'sanctuary',
+      x: lane.spawn.x,
+      y: lane.spawn.y - 34,
+      radius: 34,
+      kind: 'gate',
+      blocksEnemies: false,
+    });
+  }
+
+  for (const pr of WORLD_PROPS) {
+    const ownerZone = ZONE_LIST.find(
+      (z) => pr.x >= z.rect.x && pr.x <= z.rect.x + z.rect.w && pr.y >= z.rect.y && pr.y <= z.rect.y + z.rect.h
+    );
+    if (!ownerZone) continue;
+    map[ownerZone.id].push({
+      id: pr.id,
+      zoneId: ownerZone.id,
+      x: pr.x,
+      y: pr.y,
+      radius: PROP_COLLIDER_RADIUS[pr.kind],
+      kind: 'prop',
+      blocksEnemies: true,
+    });
+  }
+
+  return map;
+}
+
+export const STATIC_ZONE_COLLIDERS: Record<ZoneId, SolidCollider[]> = buildStaticZoneColliders();
+
+export function resolveWorldCollision(
+  zoneId: ZoneId,
+  x: number,
+  y: number,
+  entityRadius: number,
+  towers?: readonly { x: number; y: number; type?: unknown; level?: number }[],
+  isEnemy = false
+): CollisionResult {
+  const rect = ZONES[zoneId]?.rect;
+  const statics = STATIC_ZONE_COLLIDERS[zoneId] || [];
+  let rx = x;
+  let ry = y;
+  let normalX = 0;
+  let normalY = 0;
+  let collided = false;
+
+  for (let pass = 0; pass < 2; pass++) {
+    if (rect) {
+      rx = Math.max(rect.x + entityRadius, Math.min(rect.x + rect.w - entityRadius, rx));
+      ry = Math.max(rect.y + entityRadius, Math.min(rect.y + rect.h - entityRadius, ry));
+    }
+
+    for (let i = 0; i < statics.length; i++) {
+      const c = statics[i];
+      if (isEnemy && !c.blocksEnemies) continue;
+      const minD = entityRadius + c.radius;
+      const dx = rx - c.x;
+      const dy = ry - c.y;
+      if (Math.abs(dx) >= minD || Math.abs(dy) >= minD) continue;
+      const d2 = dx * dx + dy * dy;
+      if (d2 >= minD * minD) continue;
+      collided = true;
+      let nx = 0;
+      let ny = 1;
+      if (d2 >= 1e-4) {
+        const d = Math.sqrt(d2);
+        nx = dx / d;
+        ny = dy / d;
+      }
+      rx = c.x + nx * minD;
+      ry = c.y + ny * minD;
+      normalX += nx;
+      normalY += ny;
+    }
+
+    if (zoneId === 'sanctuary') {
+      const towerList = towers || TOWER_SLOTS;
+      for (let i = 0; i < towerList.length; i++) {
+        const t = towerList[i];
+        const built = Boolean(t && 'type' in t && t.type && (t.level || 0) > 0);
+        const tRad = built ? TOWER_BUILT_COLLISION_RADIUS : TOWER_BASE_COLLISION_RADIUS;
+        const minD = entityRadius + tRad;
+        const dx = rx - t.x;
+        const dy = ry - t.y;
+        if (Math.abs(dx) >= minD || Math.abs(dy) >= minD) continue;
+        const d2 = dx * dx + dy * dy;
+        if (d2 >= minD * minD) continue;
+        collided = true;
+        let nx = 0;
+        let ny = 1;
+        if (d2 >= 1e-4) {
+          const d = Math.sqrt(d2);
+          nx = dx / d;
+          ny = dy / d;
+        }
+        rx = t.x + nx * minD;
+        ry = t.y + ny * minD;
+        normalX += nx;
+        normalY += ny;
+      }
+    }
+  }
+
+  if (rect) {
+    rx = Math.max(rect.x + entityRadius, Math.min(rect.x + rect.w - entityRadius, rx));
+    ry = Math.max(rect.y + entityRadius, Math.min(rect.y + rect.h - entityRadius, ry));
+  }
+
+  if (collided) {
+    const nLen = Math.hypot(normalX, normalY);
+    if (nLen > 1e-4) {
+      normalX /= nLen;
+      normalY /= nLen;
+    } else {
+      normalX = 0;
+      normalY = 1;
+    }
+  }
+
+  return { x: rx, y: ry, collided, normalX, normalY };
+}
+
+export function moveWithBuildingSteering(
+  zoneId: ZoneId,
+  x: number,
+  y: number,
+  dirX: number,
+  dirY: number,
+  stepDist: number,
+  entityRadius: number,
+  steerSign: number,
+  towers?: readonly { x: number; y: number; type?: unknown; level?: number }[],
+  isEnemy = false
+): { x: number; y: number; collided: boolean } {
+  const direct = resolveWorldCollision(zoneId, x + dirX * stepDist, y + dirY * stepDist, entityRadius, towers, isEnemy);
+  const moved = Math.hypot(direct.x - x, direct.y - y);
+  if (direct.collided && moved < stepDist * 0.55 && (direct.normalX !== 0 || direct.normalY !== 0)) {
+    const t1x = -direct.normalY;
+    const t1y = direct.normalX;
+    const t2x = direct.normalY;
+    const t2y = -direct.normalX;
+    const d1 = t1x * dirX + t1y * dirY;
+    const d2 = t2x * dirX + t2y * dirY;
+    const pickFirst = Math.abs(d1 - d2) < 0.08 ? steerSign >= 0 : d1 >= d2;
+    const tx = pickFirst ? t1x : t2x;
+    const ty = pickFirst ? t1y : t2y;
+    const slide = resolveWorldCollision(
+      zoneId,
+      direct.x + tx * stepDist * 0.85,
+      direct.y + ty * stepDist * 0.85,
+      entityRadius,
+      towers,
+      isEnemy
+    );
+    return { x: slide.x, y: slide.y, collided: true };
+  }
+  return { x: direct.x, y: direct.y, collided: direct.collided };
+}
+
+export function resolveLinearDash(
+  zoneId: ZoneId,
+  fromX: number,
+  fromY: number,
+  toX: number,
+  toY: number,
+  entityRadius: number,
+  towers?: readonly { x: number; y: number; type?: unknown; level?: number }[]
+): { x: number; y: number } {
+  const start = resolveWorldCollision(zoneId, fromX, fromY, entityRadius, towers, false);
+  let lastSafeX = start.x;
+  let lastSafeY = start.y;
+  const steps = 6;
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    const px = fromX + (toX - fromX) * t;
+    const py = fromY + (toY - fromY) * t;
+    const res = resolveWorldCollision(zoneId, px, py, entityRadius, towers, false);
+    if (res.collided) {
+      return { x: lastSafeX, y: lastSafeY };
+    }
+    lastSafeX = res.x;
+    lastSafeY = res.y;
+  }
+  return { x: lastSafeX, y: lastSafeY };
 }

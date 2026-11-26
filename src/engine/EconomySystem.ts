@@ -1,5 +1,6 @@
 import { SoundFX } from '../audio/SoundFX';
 import { getHeroRecommendedRecipeTargets, getItemDef, getUpgradeChain, getUpgradesTo } from '../data/items';
+import { HERO_COLLISION_RADIUS, resolveWorldCollision } from '../data/worldMap';
 import { SaveManager } from '../meta/SaveManager';
 import { TowerType } from '../types';
 import { addFloatingText, grantHeroXp, recalcHeroStats } from './CombatSystem';
@@ -939,6 +940,24 @@ export function buildOrUpgradeTower(
   hero.crystal -= crysCost;
   tower.type = towerType;
   tower.level += 1;
+  for (const h of world.heroes) {
+    if (h.dead || h.zoneId !== 'sanctuary') continue;
+    const p = resolveWorldCollision('sanctuary', h.x, h.y, HERO_COLLISION_RADIUS, world.towers, false);
+    h.x = p.x;
+    h.y = p.y;
+  }
+  for (const e of world.enemies) {
+    if (e.hp <= 0 || e.zoneId !== 'sanctuary') continue;
+    const p = resolveWorldCollision('sanctuary', e.x, e.y, e.radius, world.towers, true);
+    e.x = p.x;
+    e.y = p.y;
+  }
+  for (const s of world.summons) {
+    if (s.hp <= 0 || s.zoneId !== 'sanctuary') continue;
+    const p = resolveWorldCollision('sanctuary', s.x, s.y, s.radius, world.towers, false);
+    s.x = p.x;
+    s.y = p.y;
+  }
   if (hero.isLocal) SoundFX.playSynthesize();
   addFloatingText(world, tower.x, tower.y - 30, `${tower.label} Lv.${tower.level}`, '#4ade80', 14);
   return true;

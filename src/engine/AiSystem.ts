@@ -1,7 +1,18 @@
 import { SoundFX } from '../audio/SoundFX';
 import { DIFFICULTIES, getHeroClassDef } from '../data/heroes';
 import { getWaveDef } from '../data/waves';
-import { ATHENA_POS, CONVERGENCE_POS, HERO_FORMATION_OFFSETS, HERO_SPAWN_POS, WAVE_LANES, ZONES, clampToRect } from '../data/worldMap';
+import {
+  ATHENA_POS,
+  CONVERGENCE_POS,
+  HERO_COLLISION_RADIUS,
+  HERO_FORMATION_OFFSETS,
+  HERO_SPAWN_POS,
+  WAVE_LANES,
+  ZONES,
+  clampToRect,
+  moveWithBuildingSteering,
+  resolveWorldCollision,
+} from '../data/worldMap';
 import { SaveManager } from '../meta/SaveManager';
 import { EnemyKind } from '../types';
 import { applyEnemyAffix, handleEnemyDeathDrops, spawnEnemy, teleportHeroToZone } from './BranchSystem';
@@ -272,9 +283,19 @@ export function updateEnemies(world: GameWorldState, dt: number): void {
       if (nearestHero) {
         const ang = Math.atan2(e.y - nearestHero.y, e.x - nearestHero.x);
         const spd = e.moveSpeed * (e.slowTimer > 0 ? 1 - e.slowFactor : 1);
-        e.x += Math.cos(ang) * spd * dt;
-        e.y += Math.sin(ang) * spd * dt;
-        const cl = clampToRect(e.x, e.y, e.radius + 4, { x: 1450, y: 1450, w: 1300, h: 1300 });
+        const stepped = moveWithBuildingSteering(
+          e.zoneId,
+          e.x,
+          e.y,
+          Math.cos(ang),
+          Math.sin(ang),
+          spd * dt,
+          e.radius,
+          e.id % 2 === 0 ? 1 : -1,
+          world.towers,
+          true
+        );
+        const cl = clampToRect(stepped.x, stepped.y, e.radius + 4, { x: 1450, y: 1450, w: 1300, h: 1300 });
         e.x = cl.x;
         e.y = cl.y;
         e.facing = ang;
@@ -337,6 +358,8 @@ export function updateEnemies(world: GameWorldState, dt: number): void {
     const inRange = (targetHero || targetSummon || targetAthena) && dist <= e.attackRange + e.radius + effectiveRadius;
 
     if (inRange) {
+      e.vx = 0;
+      e.vy = 0;
       if (e.isSuicide) {
         // Explode on impact!
         world.vfx.push({ kind: 'explosion', x: e.x, y: e.y, radius: 110, color: '#f97316', life: 0.4, maxLife: 0.4 });
@@ -376,13 +399,22 @@ export function updateEnemies(world: GameWorldState, dt: number): void {
           else if (targetAthena) applyDamageToSanctuary(world, e.dmg, Boolean(e.preferAthena || e.isBoss));
         }
       }
-    } else if (dist > 6) {
+    } else if (dist > 6 && e.attackAnim <= 0.08) {
       const spd = e.moveSpeed * (e.slowTimer > 0 ? 1 - e.slowFactor : 1);
-      e.x += (dx / dist) * spd * dt;
-      e.y += (dy / dist) * spd * dt;
-      const cl = clampToRect(e.x, e.y, e.radius + 4, ZONES[e.zoneId].rect);
-      e.x = cl.x;
-      e.y = cl.y;
+      const stepped = moveWithBuildingSteering(
+        e.zoneId,
+        e.x,
+        e.y,
+        dx / dist,
+        dy / dist,
+        spd * dt,
+        e.radius,
+        e.id % 2 === 0 ? 1 : -1,
+        world.towers,
+        true
+      );
+      e.x = stepped.x;
+      e.y = stepped.y;
     }
   }
 
@@ -444,11 +476,10 @@ function separateEnemiesSpatial(world: GameWorldState): void {
           const push = (minDist - d) * 0.36;
           const nx = (dx / d) * push;
           const ny = (dy / d) * push;
-          const zr = ZONES[a.zoneId].rect;
-          const clA = clampToRect(a.x - nx, a.y - ny, a.radius + 4, zr);
+          const clA = resolveWorldCollision(a.zoneId, a.x - nx, a.y - ny, a.radius, world.towers, true);
           a.x = clA.x;
           a.y = clA.y;
-          const clB = clampToRect(b.x + nx, b.y + ny, b.radius + 4, zr);
+          const clB = resolveWorldCollision(b.zoneId, b.x + nx, b.y + ny, b.radius, world.towers, true);
           b.x = clB.x;
           b.y = clB.y;
         }
@@ -557,7 +588,7 @@ function triggerBossAbility(world: GameWorldState, boss: EnemyEntity): void {
       const sumCount = isP2 ? 4 : 3;
       for (let s = 0; s < sumCount; s++) {
         const ang = (s / sumCount) * Math.PI * 2;
-        const pos = clampToRect(boss.x + Math.cos(ang) * 75, boss.y + Math.sin(ang) * 65, 22, ZONES[boss.zoneId].rect);
+        const pos = resolveWorldCollision(boss.zoneId, boss.x + Math.cos(ang) * 75, boss.y + Math.sin(ang) * 65, 22, world.towers, true);
         spawnEnemy(world, 'skeleton_archer', boss.zoneId, pos.x, pos.y, Math.max(1.2, world.wave * 0.35), 1.15);
       }
     }
@@ -628,7 +659,7 @@ function triggerBossAbility(world: GameWorldState, boss: EnemyEntity): void {
     if (isP2) {
       pushBossProjectileFan(world, boss, aimAng, 8, Math.PI * 1.75, 330, boss.dmg * 1.1, '#fb923c', true);
       if (world.enemies.filter((x) => x.zoneId === boss.zoneId).length < 24) {
-        const gPos = clampToRect(tx + 55, ty + 45, 22, ZONES[boss.zoneId].rect);
+        const gPos = resolveWorldCollision(boss.zoneId, tx + 55, ty + 45, 22, world.towers, true);
         spawnEnemy(world, 'orc_berserker', boss.zoneId, gPos.x, gPos.y, Math.max(1.4, world.wave * 0.4), 1.2);
       }
     }
@@ -676,7 +707,7 @@ function triggerBossAbility(world: GameWorldState, boss: EnemyEntity): void {
     addFloatingText(world, boss.x, boss.y - 38, '瞬雷突袭 · 天罚激光！', '#a855f7', 13);
     if (nearest) {
       world.vfx.push({ kind: 'teleport', x: boss.x, y: boss.y, radius: 58, color: '#a855f7', life: 0.4, maxLife: 0.4 });
-      const bPos = clampToRect(tx - Math.cos(aimAng) * 95, ty - Math.sin(aimAng) * 95, boss.radius + 8, ZONES[boss.zoneId].rect);
+      const bPos = resolveWorldCollision(boss.zoneId, tx - Math.cos(aimAng) * 95, ty - Math.sin(aimAng) * 95, boss.radius + 4, world.towers, true);
       boss.x = bPos.x;
       boss.y = bPos.y;
       world.vfx.push({ kind: 'teleport', x: boss.x, y: boss.y, radius: 58, color: '#38bdf8', life: 0.4, maxLife: 0.4 });
@@ -712,7 +743,7 @@ function triggerBossAbility(world: GameWorldState, boss: EnemyEntity): void {
     addFloatingText(world, boss.x, boss.y - 38, '幻影鬼步 · 剑刃扇斩！', '#fde047', 13);
     if (nearest) {
       world.vfx.push({ kind: 'teleport', x: boss.x, y: boss.y, radius: 54, color: '#fde047', life: 0.35, maxLife: 0.35 });
-      const bPos = clampToRect(tx + Math.cos(aimAng) * 78, ty + Math.sin(aimAng) * 78, boss.radius + 8, ZONES[boss.zoneId].rect);
+      const bPos = resolveWorldCollision(boss.zoneId, tx + Math.cos(aimAng) * 78, ty + Math.sin(aimAng) * 78, boss.radius + 4, world.towers, true);
       boss.x = bPos.x;
       boss.y = bPos.y;
     }
@@ -1008,16 +1039,40 @@ export function updateTowersAndSummons(world: GameWorldState, dt: number): void 
           }
         }
       } else {
-        s.x += (dx / d) * s.moveSpeed * dt;
-        s.y += (dy / d) * s.moveSpeed * dt;
+        const stepped = moveWithBuildingSteering(
+          s.zoneId,
+          s.x,
+          s.y,
+          dx / d,
+          dy / d,
+          s.moveSpeed * dt,
+          s.radius,
+          s.id % 2 === 0 ? 1 : -1,
+          world.towers,
+          false
+        );
+        s.x = stepped.x;
+        s.y = stepped.y;
       }
     } else if (owner && owner.zoneId === s.zoneId) {
       const dx = owner.x - s.x;
       const dy = owner.y - s.y;
       const d = Math.hypot(dx, dy);
       if (d > 95) {
-        s.x += (dx / d) * s.moveSpeed * dt;
-        s.y += (dy / d) * s.moveSpeed * dt;
+        const stepped = moveWithBuildingSteering(
+          s.zoneId,
+          s.x,
+          s.y,
+          dx / d,
+          dy / d,
+          s.moveSpeed * dt,
+          s.radius,
+          s.id % 2 === 0 ? 1 : -1,
+          world.towers,
+          false
+        );
+        s.x = stepped.x;
+        s.y = stepped.y;
       }
     }
   }
@@ -1058,6 +1113,15 @@ export function updateBotHeroes(world: GameWorldState, dt: number): void {
       }
     }
 
+    if (bot.attackLockTimer > 0) {
+      bot.vx = 0;
+      bot.vy = 0;
+      const lockedPos = resolveWorldCollision(bot.zoneId, bot.x, bot.y, HERO_COLLISION_RADIUS, world.towers, false);
+      bot.x = lockedPos.x;
+      bot.y = lockedPos.y;
+      continue;
+    }
+
     // Combat AI
     const searchCenterX = bot.aiMode === 'guard_base' ? CONVERGENCE_POS.x : bot.x;
     const searchCenterY = bot.aiMode === 'guard_base' ? CONVERGENCE_POS.y : bot.y;
@@ -1087,14 +1151,34 @@ export function updateBotHeroes(world: GameWorldState, dt: number): void {
         }
       }
 
+      if (bot.attackLockTimer > 0) {
+        bot.vx = 0;
+        bot.vy = 0;
+        continue;
+      }
+
       if (d <= bot.stats.attackRange + target.radius + 10) {
-        if (bot.attackCd <= 0) {
+        bot.vx = 0;
+        bot.vy = 0;
+        if (bot.attackCd <= 0 && bot.bladestormTimer <= 0) {
           performBasicAttack(world, bot, dx / d, dy / d, onKilled);
         }
       } else {
         bot.facing = Math.atan2(dy, dx);
-        bot.x += (dx / d) * bot.stats.moveSpeed * dt;
-        bot.y += (dy / d) * bot.stats.moveSpeed * dt;
+        const stepped = moveWithBuildingSteering(
+          bot.zoneId,
+          bot.x,
+          bot.y,
+          dx / d,
+          dy / d,
+          bot.stats.moveSpeed * dt,
+          HERO_COLLISION_RADIUS,
+          bot.slot % 2 === 0 ? 1 : -1,
+          world.towers,
+          false
+        );
+        bot.x = stepped.x;
+        bot.y = stepped.y;
       }
     } else {
       // Idle position in spread formation near Athena or flanking player
@@ -1112,8 +1196,20 @@ export function updateBotHeroes(world: GameWorldState, dt: number): void {
       const d = Math.hypot(dx, dy);
       if (d > 48) {
         bot.facing = Math.atan2(dy, dx);
-        bot.x += (dx / d) * bot.stats.moveSpeed * dt;
-        bot.y += (dy / d) * bot.stats.moveSpeed * dt;
+        const stepped = moveWithBuildingSteering(
+          bot.zoneId,
+          bot.x,
+          bot.y,
+          dx / d,
+          dy / d,
+          bot.stats.moveSpeed * dt,
+          HERO_COLLISION_RADIUS,
+          bot.slot % 2 === 0 ? 1 : -1,
+          world.towers,
+          false
+        );
+        bot.x = stepped.x;
+        bot.y = stepped.y;
       }
     }
   }

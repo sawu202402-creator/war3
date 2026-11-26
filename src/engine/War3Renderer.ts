@@ -15,15 +15,36 @@ import { EnemyEntity, GameWorldState, HeroAnimPose, HeroEntity } from './GameSta
 import { IconAtlas, TerrainBiome } from './IconAtlas';
 import { InputManager } from './InputManager';
 
+interface DepthItem {
+  y: number;
+  kind: number; // 0:athena, 1:fountain, 2:altar, 3:tower, 4:prop, 5:summon, 6:enemy, 7:hero, 8:spawnGate
+  idx: number;
+}
+
 export class War3Renderer {
   private patternCache = new Map<TerrainBiome, CanvasPattern>();
-  private visibleEnemiesBuf: EnemyEntity[] = [];
-  private visibleHeroesBuf: HeroEntity[] = [];
+  private depthDrawBuf: DepthItem[] = [];
+  private depthPool: DepthItem[] = [];
+  private depthUsed = 0;
   private placedPlatesBuf: { x: number; y: number }[] = [];
   private minimapCache: HTMLCanvasElement | null = null;
   private minimapCacheW = 0;
   private minimapCacheH = 0;
   private minimapCacheHasPlaza = false;
+
+  private pushDepthItem(y: number, kind: number, idx: number): void {
+    let item = this.depthPool[this.depthUsed];
+    if (!item) {
+      item = { y, kind, idx };
+      this.depthPool.push(item);
+    } else {
+      item.y = y;
+      item.kind = kind;
+      item.idx = idx;
+    }
+    this.depthUsed++;
+    this.depthDrawBuf.push(item);
+  }
 
   private getPattern(ctx: CanvasRenderingContext2D, biome: TerrainBiome): CanvasPattern | null {
     const cached = this.patternCache.get(biome);
@@ -397,16 +418,10 @@ export class War3Renderer {
       }
     }
 
-    // 5. Athena Statue, Fountain, Water Altar, Towers
-    this.renderAthenaAndStructures(ctx, world, nowSec);
+    // 5. Structure floor decals & empty tower pedestals (strictly beneath drops and units)
+    this.renderStructureGroundDecals(ctx, world, nowSec, minX, maxX, minY, maxY);
 
-    // 6. Props (AI sprites with soft raster contact shadows)
-    for (const pr of WORLD_PROPS) {
-      if (pr.x < minX || pr.x > maxX || pr.y < minY || pr.y > maxY) continue;
-      this.renderProp(ctx, pr, nowSec);
-    }
-
-    // 7. Drops (AI sprites)
+    // 6. Drops (AI sprites lying on ground plane)
     for (const d of world.drops) {
       if (d.x < minX || d.x > maxX || d.y < minY || d.y > maxY) continue;
       const bob = Math.sin(nowSec * 4 + d.id) * 3;
@@ -415,74 +430,117 @@ export class War3Renderer {
       this.drawCenteredSprite(ctx, IconAtlas.getSprite(key), d.x, d.y + bob, 32, 32);
     }
 
-    // 8. Summons
-    for (const s of world.summons) {
-      if (s.x < minX || s.x > maxX || s.y < minY || s.y > maxY) continue;
-      ctx.save();
-      this.drawSoftShadow(ctx, s.x, s.y + s.radius * 0.72, s.radius * 2.1, s.radius * 1.0, 0.68);
-      const sKey = s.kind === 'illusion' ? 'hero_anim_blademaster_attack' : 'summon_treant';
-      const spr = IconAtlas.getSprite(sKey) || (s.kind === 'illusion' ? IconAtlas.getSprite('hero_td_blademaster') : null);
-      const sz = s.radius * 2.7;
-      this.drawCenteredSprite(ctx, spr, s.x, s.y - 4, sz, sz, {
-        flipX: Math.cos(s.facing) < 0,
-        alpha: s.kind === 'illusion' ? 0.72 : 1.0,
-      });
-      this.drawHpBar(ctx, s.x, s.y - s.radius - 14, 38, 5, s.hp / s.maxHp, '#4ade80');
-      ctx.restore();
-    }
+    // 7. Unified Zero-GC 2.5D Y-Sorted Pass (Buildings, Props, Summons, Enemies, Heroes)
+    this.depthDrawBuf.length = 0;
+    this.depthUsed = 0;
 
-    // 9. Enemies & Bosses (Zero-GC buffered Y-sort + raster Target Lock reticle)
-    const visibleEnemies = this.visibleEnemiesBuf;
-    visibleEnemies.length = 0;
+    if (ATHENA_POS.x + 200 >= minX && ATHENA_POS.x - 200 <= maxX && ATHENA_POS.y + 200 >= minY && ATHENA_POS.y - 200 <= maxY) {
+      this.pushDepthItem(ATHENA_POS.y + 18, 0, 0);
+    }
+    if (FOUNTAIN_POS.x + 180 >= minX && FOUNTAIN_POS.x - 180 <= maxX && FOUNTAIN_POS.y + 180 >= minY && FOUNTAIN_POS.y - 180 <= maxY) {
+      this.pushDepthItem(FOUNTAIN_POS.y + 14, 1, 0);
+    }
+    if (WATER_ALTAR_POS.x + 160 >= minX && WATER_ALTAR_POS.x - 160 <= maxX && WATER_ALTAR_POS.y + 160 >= minY && WATER_ALTAR_POS.y - 160 <= maxY) {
+      this.pushDepthItem(WATER_ALTAR_POS.y + 14, 2, 0);
+    }
+    for (let i = 0; i < WAVE_LANES.length; i++) {
+      const gx = WAVE_LANES[i].spawn.x;
+      const gy = WAVE_LANES[i].spawn.y;
+      if (gx + 140 >= minX && gx - 140 <= maxX && gy + 140 >= minY && gy - 140 <= maxY) {
+        this.pushDepthItem(gy - 12, 8, i);
+      }
+    }
+    for (let i = 0; i < world.towers.length; i++) {
+      const t = world.towers[i];
+      if (t.type && t.level > 0 && t.x + 120 >= minX && t.x - 120 <= maxX && t.y + 120 >= minY && t.y - 120 <= maxY) {
+        this.pushDepthItem(t.y + 10, 3, i);
+      }
+    }
+    for (let i = 0; i < WORLD_PROPS.length; i++) {
+      const pr = WORLD_PROPS[i];
+      if (pr.x + 100 >= minX && pr.x - 100 <= maxX && pr.y + 100 >= minY && pr.y - 100 <= maxY) {
+        this.pushDepthItem(pr.y + pr.radius * 0.45, 4, i);
+      }
+    }
+    for (let i = 0; i < world.summons.length; i++) {
+      const s = world.summons[i];
+      if (s.x + 100 >= minX && s.x - 100 <= maxX && s.y + 100 >= minY && s.y - 100 <= maxY) {
+        this.pushDepthItem(s.y, 5, i);
+      }
+    }
     for (let i = 0; i < world.enemies.length; i++) {
       const e = world.enemies[i];
       if (e.x + 120 >= minX && e.x - 120 <= maxX && e.y + 120 >= minY && e.y - 120 <= maxY) {
-        visibleEnemies.push(e);
+        this.pushDepthItem(e.y, 6, i);
       }
     }
-    visibleEnemies.sort((a, b) => a.y - b.y);
-    for (let i = 0; i < visibleEnemies.length; i++) {
-      const e = visibleEnemies[i];
-      if (lockedTargetId !== null && e.id === lockedTargetId) {
-        const lockSz = (e.radius * 2.6 + Math.sin(nowSec * 8) * 3) * 1.18;
-        this.drawCenteredSprite(ctx, IconAtlas.getSprite('fx_aura_wind'), e.x, e.y + e.radius * 0.45, lockSz * 0.92, lockSz * 0.52, {
-          angle: -nowSec * 3.0,
-          alpha: 0.46,
-          additive: true,
-        });
-        this.drawCenteredSprite(ctx, IconAtlas.getSprite('fx_target_lock'), e.x, e.y + e.radius * 0.45, lockSz, lockSz * 0.58, {
-          angle: nowSec * 2.4,
-          alpha: 0.9,
-          additive: true,
-        });
-      }
-      this.renderEnemy(ctx, e, nowSec);
-    }
-
-    // 10. Heroes (Zero-GC buffered Y-sort with anti-overlap nameplate staggering)
-    const visibleHeroes = this.visibleHeroesBuf;
-    visibleHeroes.length = 0;
     for (let i = 0; i < world.heroes.length; i++) {
       const h = world.heroes[i];
       if (h.x + 140 >= minX && h.x - 140 <= maxX && h.y + 140 >= minY && h.y - 140 <= maxY) {
-        visibleHeroes.push(h);
+        this.pushDepthItem(h.y, 7, i);
       }
     }
-    visibleHeroes.sort((a, b) => a.y - b.y);
+
+    this.depthDrawBuf.sort((a, b) => a.y - b.y);
     const placedPlates = this.placedPlatesBuf;
     placedPlates.length = 0;
-    for (let i = 0; i < visibleHeroes.length; i++) {
-      const h = visibleHeroes[i];
-      const scale = h.avatarTimer > 0 ? 1.32 : 1.0;
-      const basePlateY = h.y + 14 - 90 * scale * 0.88 - 16;
-      let lift = 0;
-      if (!h.dead) {
-        while (lift <= 44 && placedPlates.some((p) => Math.abs(p.x - h.x) < 74 && Math.abs(p.y - (basePlateY - lift)) < 24)) {
-          lift += 22;
+
+    for (let i = 0; i < this.depthDrawBuf.length; i++) {
+      const d = this.depthDrawBuf[i];
+      if (d.kind === 0) {
+        this.renderAthenaBody(ctx, world, nowSec);
+      } else if (d.kind === 1) {
+        this.renderFountainBody(ctx, nowSec);
+      } else if (d.kind === 2) {
+        this.renderWaterAltarBody(ctx);
+      } else if (d.kind === 3) {
+        this.renderBuiltTowerBody(ctx, world.towers[d.idx]);
+      } else if (d.kind === 4) {
+        this.renderProp(ctx, WORLD_PROPS[d.idx], nowSec);
+      } else if (d.kind === 5) {
+        const s = world.summons[d.idx];
+        ctx.save();
+        this.drawSoftShadow(ctx, s.x, s.y + s.radius * 0.72, s.radius * 2.1, s.radius * 1.0, 0.68);
+        const sKey = s.kind === 'illusion' ? 'hero_anim_blademaster_attack' : 'summon_treant';
+        const spr = IconAtlas.getSprite(sKey) || (s.kind === 'illusion' ? IconAtlas.getSprite('hero_td_blademaster') : null);
+        const sz = s.radius * 2.7;
+        this.drawCenteredSprite(ctx, spr, s.x, s.y - 4, sz, sz, {
+          flipX: Math.cos(s.facing) < 0,
+          alpha: s.kind === 'illusion' ? 0.72 : 1.0,
+        });
+        this.drawHpBar(ctx, s.x, s.y - s.radius - 14, 38, 5, s.hp / s.maxHp, '#4ade80');
+        ctx.restore();
+      } else if (d.kind === 6) {
+        const e = world.enemies[d.idx];
+        if (lockedTargetId !== null && e.id === lockedTargetId) {
+          const lockSz = (e.radius * 2.6 + Math.sin(nowSec * 8) * 3) * 1.18;
+          this.drawCenteredSprite(ctx, IconAtlas.getSprite('fx_aura_wind'), e.x, e.y + e.radius * 0.45, lockSz * 0.92, lockSz * 0.52, {
+            angle: -nowSec * 3.0,
+            alpha: 0.46,
+            additive: true,
+          });
+          this.drawCenteredSprite(ctx, IconAtlas.getSprite('fx_target_lock'), e.x, e.y + e.radius * 0.45, lockSz, lockSz * 0.58, {
+            angle: nowSec * 2.4,
+            alpha: 0.9,
+            additive: true,
+          });
         }
-        placedPlates.push({ x: h.x, y: basePlateY - lift });
+        this.renderEnemy(ctx, e, nowSec);
+      } else if (d.kind === 7) {
+        const h = world.heroes[d.idx];
+        const scale = h.avatarTimer > 0 ? 1.32 : 1.0;
+        const basePlateY = h.y + 14 - 90 * scale * 0.88 - 16;
+        let lift = 0;
+        if (!h.dead) {
+          while (lift <= 44 && placedPlates.some((p) => Math.abs(p.x - h.x) < 74 && Math.abs(p.y - (basePlateY - lift)) < 24)) {
+            lift += 22;
+          }
+          placedPlates.push({ x: h.x, y: basePlateY - lift });
+        }
+        this.renderHero(ctx, h, nowSec, lift);
+      } else if (d.kind === 8) {
+        this.renderSpawnGateBody(ctx, WAVE_LANES[d.idx]);
       }
-      this.renderHero(ctx, h, nowSec, lift);
     }
 
     // 11. Projectiles (AI directional glow sprites + motion trail ghosts)
@@ -826,33 +884,80 @@ export class War3Renderer {
       11
     );
 
-    const gateImg = IconAtlas.getSprite('struct_spawn_gate');
     const riftSpr = IconAtlas.getSprite('fx_boss_aura');
     for (const lane of WAVE_LANES) {
-      ctx.save();
+      if (lane.spawn.x + 140 < minX || lane.spawn.x - 140 > maxX || lane.spawn.y + 140 < minY || lane.spawn.y - 140 > maxY) continue;
       this.drawCenteredSprite(ctx, riftSpr, lane.spawn.x, lane.spawn.y + 8, 134, 84, {
         angle: nowSec * 0.6 + lane.id,
         alpha: 0.36 + Math.sin(nowSec * 3.5 + lane.id) * 0.08,
         additive: true,
       });
-      this.drawCenteredSprite(ctx, gateImg, lane.spawn.x, lane.spawn.y - 10, 112, 112);
-      this.drawWorldLabel(ctx, lane.spawn.x, lane.spawn.y - 58, lane.name, '#fecaca', 'rgba(244, 63, 94, 0.58)', 11);
-      ctx.restore();
     }
   }
 
-  private renderAthenaAndStructures(ctx: CanvasRenderingContext2D, world: GameWorldState, nowSec: number): void {
-    // 1. Fountain of Health with pulsing AI shimmer halo & gentle healing mist
-    this.drawSoftShadow(ctx, FOUNTAIN_POS.x, FOUNTAIN_POS.y + 32, 132, 54, 0.72);
-    this.drawCenteredSprite(
-      ctx,
-      IconAtlas.getSprite('fx_aura_arcane'),
-      FOUNTAIN_POS.x,
-      FOUNTAIN_POS.y + 8,
-      154,
-      96,
-      { angle: nowSec * 0.4, alpha: 0.32 + Math.sin(nowSec * 3) * 0.06, additive: true }
-    );
+  private renderSpawnGateBody(ctx: CanvasRenderingContext2D, lane: typeof WAVE_LANES[number]): void {
+    const gateImg = IconAtlas.getSprite('struct_spawn_gate');
+    this.drawSoftShadow(ctx, lane.spawn.x, lane.spawn.y - 6, 98, 42, 0.68);
+    this.drawCenteredSprite(ctx, gateImg, lane.spawn.x, lane.spawn.y - 10, 112, 112);
+    this.drawWorldLabel(ctx, lane.spawn.x, lane.spawn.y - 58, lane.name, '#fecaca', 'rgba(244, 63, 94, 0.58)', 11);
+  }
+
+  private renderStructureGroundDecals(
+    ctx: CanvasRenderingContext2D,
+    world: GameWorldState,
+    nowSec: number,
+    minX: number,
+    maxX: number,
+    minY: number,
+    maxY: number
+  ): void {
+    if (FOUNTAIN_POS.x + 180 >= minX && FOUNTAIN_POS.x - 180 <= maxX && FOUNTAIN_POS.y + 180 >= minY && FOUNTAIN_POS.y - 180 <= maxY) {
+      this.drawSoftShadow(ctx, FOUNTAIN_POS.x, FOUNTAIN_POS.y + 32, 132, 54, 0.72);
+      this.drawCenteredSprite(
+        ctx,
+        IconAtlas.getSprite('fx_aura_arcane'),
+        FOUNTAIN_POS.x,
+        FOUNTAIN_POS.y + 8,
+        154,
+        96,
+        { angle: nowSec * 0.4, alpha: 0.32 + Math.sin(nowSec * 3) * 0.06, additive: true }
+      );
+    }
+
+    if (WATER_ALTAR_POS.x + 160 >= minX && WATER_ALTAR_POS.x - 160 <= maxX && WATER_ALTAR_POS.y + 160 >= minY && WATER_ALTAR_POS.y - 160 <= maxY) {
+      this.drawSoftShadow(ctx, WATER_ALTAR_POS.x, WATER_ALTAR_POS.y + 30, 126, 52, 0.72);
+      this.drawCenteredSprite(ctx, IconAtlas.getSprite('fx_aura_arcane'), WATER_ALTAR_POS.x, WATER_ALTAR_POS.y + 12, 142, 86, {
+        angle: -nowSec * 0.35,
+        alpha: 0.3,
+        additive: true,
+      });
+    }
+
+    const padImg = IconAtlas.getSprite('tower_base');
+    for (const t of world.towers) {
+      if (t.x + 120 < minX || t.x - 120 > maxX || t.y + 120 < minY || t.y - 120 > maxY) continue;
+      this.drawSoftShadow(ctx, t.x, t.y + 18, 72, 34, 0.65);
+      this.drawCenteredSprite(ctx, padImg, t.x, t.y + 6, 72, 72);
+      if (!t.type || t.level <= 0) {
+        this.drawWorldLabel(ctx, t.x, t.y + 35, '塔基 [G]', '#cbd5e1', 'rgba(148, 163, 184, 0.45)', 10);
+      }
+    }
+
+    if (ATHENA_POS.x + 200 >= minX && ATHENA_POS.x - 200 <= maxX && ATHENA_POS.y + 200 >= minY && ATHENA_POS.y - 200 <= maxY) {
+      this.drawCenteredSprite(
+        ctx,
+        IconAtlas.getSprite('fx_aura_paladin'),
+        ATHENA_POS.x,
+        ATHENA_POS.y + 24,
+        188,
+        108,
+        { angle: nowSec * 0.25, alpha: 0.36, additive: true }
+      );
+      this.drawSoftShadow(ctx, ATHENA_POS.x, ATHENA_POS.y + 42, 144, 58, 0.78);
+    }
+  }
+
+  private renderFountainBody(ctx: CanvasRenderingContext2D, nowSec: number): void {
     this.drawCenteredSprite(ctx, IconAtlas.getSprite('struct_fountain'), FOUNTAIN_POS.x, FOUNTAIN_POS.y, 148, 148);
     const mistSpr = IconAtlas.getSprite('fx_dust_puff');
     for (let k = 0; k < 2; k++) {
@@ -864,45 +969,22 @@ export class War3Renderer {
       });
     }
     this.drawWorldLabel(ctx, FOUNTAIN_POS.x, FOUNTAIN_POS.y + 66, '复活圣泉 (接水点)', '#e0f2fe', 'rgba(56, 189, 248, 0.55)', 10.5);
+  }
 
-    // 2. Water Altar
-    this.drawSoftShadow(ctx, WATER_ALTAR_POS.x, WATER_ALTAR_POS.y + 30, 126, 52, 0.72);
-    this.drawCenteredSprite(ctx, IconAtlas.getSprite('fx_aura_arcane'), WATER_ALTAR_POS.x, WATER_ALTAR_POS.y + 12, 142, 86, {
-      angle: -nowSec * 0.35,
-      alpha: 0.3,
-      additive: true,
-    });
+  private renderWaterAltarBody(ctx: CanvasRenderingContext2D): void {
     this.drawCenteredSprite(ctx, IconAtlas.getSprite('struct_water_altar'), WATER_ALTAR_POS.x, WATER_ALTAR_POS.y, 132, 132);
     this.drawWorldLabel(ctx, WATER_ALTAR_POS.x, WATER_ALTAR_POS.y - 66, '东郊圣水祭坛 (运水终点)', '#bae6fd', 'rgba(56, 189, 248, 0.55)', 10.5);
+  }
 
-    // 3. Towers
-    const padImg = IconAtlas.getSprite('tower_base');
-    for (const t of world.towers) {
-      ctx.save();
-      this.drawSoftShadow(ctx, t.x, t.y + 18, 72, 34, 0.65);
-      this.drawCenteredSprite(ctx, padImg, t.x, t.y + 6, 72, 72);
-      if (t.type && t.level > 0) {
-        const tImg = IconAtlas.getSprite(`tower_${t.type}`);
-        this.drawCenteredSprite(ctx, tImg, t.x, t.y - 18, 88, 88);
-        this.drawWorldLabel(ctx, t.x, t.y + 38, `Lv.${t.level}`, '#fde047', 'rgba(250, 204, 21, 0.55)', 10);
-      } else {
-        this.drawWorldLabel(ctx, t.x, t.y + 35, '塔基 [G]', '#cbd5e1', 'rgba(148, 163, 184, 0.45)', 10);
-      }
-      ctx.restore();
-    }
+  private renderBuiltTowerBody(ctx: CanvasRenderingContext2D, t: GameWorldState['towers'][number]): void {
+    if (!t.type || t.level <= 0) return;
+    const tImg = IconAtlas.getSprite(`tower_${t.type}`);
+    this.drawCenteredSprite(ctx, tImg, t.x, t.y - 18, 88, 88);
+    this.drawWorldLabel(ctx, t.x, t.y + 38, `Lv.${t.level}`, '#fde047', 'rgba(250, 204, 21, 0.55)', 10);
+  }
 
-    // 4. Goddess Athena Shrine Statue
+  private renderAthenaBody(ctx: CanvasRenderingContext2D, world: GameWorldState, nowSec: number): void {
     ctx.save();
-    this.drawCenteredSprite(
-      ctx,
-      IconAtlas.getSprite('fx_aura_paladin'),
-      ATHENA_POS.x,
-      ATHENA_POS.y + 24,
-      188,
-      108,
-      { angle: nowSec * 0.25, alpha: 0.36, additive: true }
-    );
-    this.drawSoftShadow(ctx, ATHENA_POS.x, ATHENA_POS.y + 42, 144, 58, 0.78);
     this.drawCenteredSprite(ctx, IconAtlas.getSprite('struct_athena'), ATHENA_POS.x, ATHENA_POS.y - 14, 176, 176);
 
     if (world.sanctuary.invulnTimer > 0 || world.sanctuary.shield > 0) {

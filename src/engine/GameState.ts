@@ -97,6 +97,7 @@ export interface HeroEntity {
   recallTimer: number; // >0 means channeling recall
   activeItemCd: number;
   attackCd: number;
+  attackLockTimer: number;
   attackCombo: number;
   swingAnim: number;
   hitFlash: number;

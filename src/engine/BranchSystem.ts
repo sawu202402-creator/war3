@@ -2,7 +2,7 @@ import { SoundFX } from '../audio/SoundFX';
 import { DIFFICULTIES } from '../data/heroes';
 import { getItemDef } from '../data/items';
 import { ENEMY_ARCHETYPES } from '../data/waves';
-import { FOUNTAIN_POS, WATER_ALTAR_POS, ZONES, clampToRect } from '../data/worldMap';
+import { FOUNTAIN_POS, HERO_COLLISION_RADIUS, WATER_ALTAR_POS, ZONES, resolveWorldCollision } from '../data/worldMap';
 import { SaveManager } from '../meta/SaveManager';
 import { EnemyKind, ZoneId } from '../types';
 import { addFloatingText, grantHeroXp, recalcHeroStats } from './CombatSystem';
@@ -89,6 +89,9 @@ export function spawnEnemy(
       (arch.isBoss ? 1.3 : isStandardWaveCreep ? 1.0 : 1.15)
   );
 
+  const rad = splitGen > 0 ? Math.max(14, arch.radius * 0.72) : arch.radius;
+  const resolvedPos = resolveWorldCollision(zoneId, x, y, rad, world.towers, true);
+
   const e: EnemyEntity = {
     id: world.nextEntityId++,
     kind,
@@ -101,11 +104,11 @@ export function spawnEnemy(
     isSuicide: Boolean(arch.isSuicide),
     isSplitter: Boolean(arch.isSplitter && splitGen === 0),
     preferAthena: Boolean(arch.preferAthena),
-    x,
-    y,
+    x: resolvedPos.x,
+    y: resolvedPos.y,
     vx: 0,
     vy: 0,
-    radius: splitGen > 0 ? Math.max(14, arch.radius * 0.72) : arch.radius,
+    radius: rad,
     facing: 0,
     hp: finalHp,
     maxHp: finalHp,
@@ -135,8 +138,8 @@ export function spawnEnemy(
     accentColor: arch.accentColor,
     laneId,
     waypointIdx: 0,
-    spawnX: x,
-    spawnY: y,
+    spawnX: resolvedPos.x,
+    spawnY: resolvedPos.y,
     tierMult,
     stunTimer: 0,
     slowTimer: 0,
@@ -151,8 +154,8 @@ export function spawnEnemy(
     bossPhase: 1,
     fleeTimer: kind === 'treasure_goblin' ? 28 : 0,
     splitGeneration: splitGen,
-    prevX: x,
-    prevY: y,
+    prevX: resolvedPos.x,
+    prevY: resolvedPos.y,
     moveSpeedNorm: 0,
     animPhase: Math.random() * Math.PI * 2,
     attackAnim: 0,
@@ -212,8 +215,16 @@ export function teleportHeroToZone(
 
   world.vfx.push({ kind: 'teleport', x: hero.x, y: hero.y, radius: 42, color: zone.color, life: 0.4, maxLife: 0.4 });
   hero.zoneId = toZone;
-  hero.x = zone.spawnPoint.x + (Math.random() - 0.5) * 32;
-  hero.y = zone.spawnPoint.y + (Math.random() - 0.5) * 32;
+  const tpPos = resolveWorldCollision(
+    toZone,
+    zone.spawnPoint.x + (Math.random() - 0.5) * 32,
+    zone.spawnPoint.y + (Math.random() - 0.5) * 32,
+    HERO_COLLISION_RADIUS,
+    world.towers,
+    false
+  );
+  hero.x = tpPos.x;
+  hero.y = tpPos.y;
   hero.recallTimer = 0;
   hero.teleportSeq = (hero.teleportSeq || 0) + 1;
   world.vfx.push({ kind: 'teleport', x: hero.x, y: hero.y, radius: 46, color: zone.color, life: 0.45, maxLife: 0.45 });
@@ -516,7 +527,7 @@ export function updateBranches(world: GameWorldState, dt: number): void {
   for (const h of world.heroes) {
     if (h.dead || h.zoneId !== 'sanctuary') continue;
     // Fountain fast regen
-    if (Math.hypot(h.x - FOUNTAIN_POS.x, h.y - FOUNTAIN_POS.y) <= FOUNTAIN_POS.radius) {
+    if (Math.hypot(h.x - FOUNTAIN_POS.x, h.y - FOUNTAIN_POS.y) <= FOUNTAIN_POS.radius + 26) {
       h.hp = Math.min(h.stats.maxHp, h.hp + h.stats.maxHp * 0.18 * dt);
       h.mp = Math.min(h.stats.maxMp, h.mp + h.stats.maxMp * 0.24 * dt);
 
@@ -528,7 +539,7 @@ export function updateBranches(world: GameWorldState, dt: number): void {
       }
     }
 
-    if (h.carryingWater && Math.hypot(h.x - WATER_ALTAR_POS.x, h.y - WATER_ALTAR_POS.y) <= WATER_ALTAR_POS.radius) {
+    if (h.carryingWater && Math.hypot(h.x - WATER_ALTAR_POS.x, h.y - WATER_ALTAR_POS.y) <= WATER_ALTAR_POS.radius + 28) {
       h.carryingWater = false;
       h.waterDeliveriesDone += 1;
       h.gold += 260;
@@ -632,10 +643,9 @@ export function updateBranches(world: GameWorldState, dt: number): void {
     }
   }
 
-  // 7. Clamp all entities safely inside their zone rect
+  // 7. Resolve all heroes cleanly against solid buildings & zone bounds
   for (const h of world.heroes) {
-    const rect = ZONES[h.zoneId].rect;
-    const cl = clampToRect(h.x, h.y, 18, rect);
+    const cl = resolveWorldCollision(h.zoneId, h.x, h.y, HERO_COLLISION_RADIUS, world.towers, false);
     h.x = cl.x;
     h.y = cl.y;
   }
