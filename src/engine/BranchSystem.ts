@@ -215,6 +215,7 @@ export function teleportHeroToZone(
   hero.x = zone.spawnPoint.x + (Math.random() - 0.5) * 32;
   hero.y = zone.spawnPoint.y + (Math.random() - 0.5) * 32;
   hero.recallTimer = 0;
+  hero.teleportSeq = (hero.teleportSeq || 0) + 1;
   world.vfx.push({ kind: 'teleport', x: hero.x, y: hero.y, radius: 46, color: zone.color, life: 0.45, maxLife: 0.45 });
   if (hero.isLocal) SoundFX.playTeleport();
   addFloatingText(world, hero.x, hero.y - 34, `传送至 ${zone.name}`, zone.color, 14);

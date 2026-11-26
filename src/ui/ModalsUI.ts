@@ -19,6 +19,7 @@ import {
 import { GameEngine } from '../engine/GameEngine';
 import { HeroEntity } from '../engine/GameState';
 import { IconAtlas } from '../engine/IconAtlas';
+import { CoopManager } from '../net/CoopManager';
 import { ItemDef, TowerType, ZoneId } from '../types';
 
 type ShopCategory =
@@ -56,11 +57,16 @@ export class ModalsUI {
     private root: HTMLElement,
     private engine: GameEngine,
     private onExitToLobby: () => void,
-    private onToggleFullscreen?: () => void
+    private onToggleFullscreen?: () => void,
+    private onReturnSquad?: () => void
   ) {}
 
   public isOpen(): boolean {
     return this.activeModal !== 'none';
+  }
+
+  public refreshIfOpen(): void {
+    if (this.activeModal !== 'none') this.render();
   }
 
   public close(): void {
@@ -853,7 +859,12 @@ export class ModalsUI {
               ? `<button class="war3-btn war3-btn-blue" id="btn-go-endless" style="padding:12px 22px;font-size:15px;">继续挑战无尽守卫模式</button>`
               : ''
           }
-          <button class="war3-btn war3-btn-gold" id="btn-back-lobby" style="padding:12px 22px;font-size:15px;">返回主大厅</button>
+          ${
+            CoopManager.isActiveCoop() && this.onReturnSquad
+              ? `<button class="war3-btn war3-btn-green" id="btn-return-squad" style="padding:12px 22px;font-size:15px;">返回小队房间（再来一局）</button>`
+              : ''
+          }
+          <button class="war3-btn war3-btn-gold" id="btn-back-lobby" style="padding:12px 22px;font-size:15px;">${CoopManager.isActiveCoop() ? '退出联机回大厅' : '返回主大厅'}</button>
         </div>
       </div>
     `;
@@ -1021,6 +1032,13 @@ export class ModalsUI {
       btnEnd.onclick = () => {
         this.engine.continueEndless();
         this.close();
+      };
+    }
+    const btnReturnSquad = this.modalEl.querySelector('#btn-return-squad') as HTMLButtonElement | null;
+    if (btnReturnSquad) {
+      btnReturnSquad.onclick = () => {
+        this.close();
+        this.onReturnSquad?.();
       };
     }
     const btnBack = this.modalEl.querySelector('#btn-back-lobby') as HTMLButtonElement | null;

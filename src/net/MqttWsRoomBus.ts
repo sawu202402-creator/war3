@@ -326,6 +326,8 @@ export class MqttWsRoomBus<T extends { type?: string }> {
   private handleBatch(batchTexts: string[], sourceBrokerIdx: number): void {
     const parsed: RoomWireEnvelope<T>[] = [];
     let latestSnapIdx = -1;
+    let latestHeroesFastIdx = -1;
+    const latestClientPosByFrom = new Map<string, number>();
 
     for (let i = 0; i < batchTexts.length; i++) {
       try {
@@ -345,7 +347,10 @@ export class MqttWsRoomBus<T extends { type?: string }> {
         this.peerBrokerMap.set(env.from, sourceBrokerIdx);
         const outIdx = parsed.length;
         parsed.push(env);
-        if (env.msg?.type === 'world_snap') latestSnapIdx = outIdx;
+        const t = env.msg?.type;
+        if (t === 'world_snap') latestSnapIdx = outIdx;
+        else if (t === 'heroes_fast') latestHeroesFastIdx = outIdx;
+        else if (t === 'client_pos') latestClientPosByFrom.set(env.from, outIdx);
       } catch {
         // ignore
       }
@@ -353,7 +358,10 @@ export class MqttWsRoomBus<T extends { type?: string }> {
 
     for (let i = 0; i < parsed.length; i++) {
       const env = parsed[i];
-      if (env.msg?.type === 'world_snap' && i !== latestSnapIdx) continue;
+      const t = env.msg?.type;
+      if (t === 'world_snap' && i !== latestSnapIdx) continue;
+      if (t === 'heroes_fast' && i !== latestHeroesFastIdx) continue;
+      if (t === 'client_pos' && latestClientPosByFrom.get(env.from) !== i) continue;
       this.onEnvelope(env);
     }
   }
@@ -388,7 +396,14 @@ export class MqttWsRoomBus<T extends { type?: string }> {
     const wire = JSON.stringify(env);
 
     const t = msg?.type;
-    const isHighFreq = t === 'world_snap' || t === 'client_pos' || t === '__ping' || t === '__pong';
+    const isHighFreq =
+      t === 'world_snap' ||
+      t === 'heroes_fast' ||
+      t === 'client_pos' ||
+      t === 'cmd_attack' ||
+      t === 'evt_fx' ||
+      t === '__ping' ||
+      t === '__pong';
     if (!isHighFreq) {
       for (const { link } of ready) link.publish(wire);
       return;

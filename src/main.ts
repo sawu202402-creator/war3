@@ -81,6 +81,7 @@ async function bootstrap() {
     onTogglePause: () => modals.togglePause(),
     onPromptAwakening: (hero) => modals.openAwakening(hero),
     onShowSettlement: (victory) => modals.openSettlement(victory),
+    onNetUiRefresh: () => modals.refreshIfOpen(),
   });
 
   const enterLobby = () => {
@@ -93,7 +94,18 @@ async function bootstrap() {
     lobby.render();
   };
 
-  modals = new ModalsUI(uiLayer, engine, enterLobby, toggleFullscreenLandscape);
+  const returnToCoopRoom = () => {
+    inMatch = false;
+    engine.world = null;
+    modals.close();
+    hud.unmount();
+    CoopManager.returnSquadToLobby();
+    lobby.setTab('coop');
+    SoundFX.setBgmMode('hub');
+    lobby.render();
+  };
+
+  modals = new ModalsUI(uiLayer, engine, enterLobby, toggleFullscreenLandscape, returnToCoopRoom);
   hud = new HudUI(uiLayer, engine, {
     onOpenShop: () => modals.toggleShop(),
     onOpenTeleport: () => modals.toggleTeleport(),
@@ -152,6 +164,9 @@ async function bootstrap() {
         })),
       });
       hud.mount();
+    },
+    () => {
+      if (!inMatch && lobby.isCoopTab()) lobby.render();
     }
   );
 

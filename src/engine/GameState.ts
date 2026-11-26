@@ -144,11 +144,17 @@ export interface HeroEntity {
   stepDustTimer: number;
   afterimages: HeroAfterimage[];
 
-  // Interpolation / AI
+  // Interpolation / AI / Co-op
   botDecisionTimer: number;
   netTx?: number;
   netTy?: number;
+  netVx?: number;
+  netVy?: number;
   netAngle?: number;
+  extrapAge?: number;
+  lastSeq?: number;
+  teleportSeq?: number;
+  takeoverOriginCallsign?: string;
 }
 
 export type EnemyAffix = 'bloodlust' | 'armored' | 'swift' | 'blazing';
@@ -220,6 +226,12 @@ export interface EnemyEntity {
   attackAnim: number;
   knockX: number;
   knockY: number;
+  netTx?: number;
+  netTy?: number;
+  netVx?: number;
+  netVy?: number;
+  netFacing?: number;
+  extrapAge?: number;
 }
 
 export interface SummonEntity {

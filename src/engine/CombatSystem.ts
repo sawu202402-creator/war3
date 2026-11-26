@@ -1107,6 +1107,7 @@ export function castFlashSkill(world: GameWorldState, hero: HeroEntity, dirX: nu
   hero.castAnim = 0.25;
   hero.x = dest.x;
   hero.y = dest.y;
+  hero.teleportSeq = (hero.teleportSeq || 0) + 1;
   hero.flashCd = 18;
   hero.stunTimer = 0;
   world.vfx.push({ kind: 'teleport', x: dest.x, y: dest.y, radius: 44, color: '#fbbf24', life: 0.35, maxLife: 0.35 });

@@ -101,6 +101,7 @@ export class HudUI {
               <img src="${IconAtlas.getDataUrl('ui_ico_stone')}" alt="" />
               <span id="hud-stones">0石</span>
             </span>
+            <span class="res-chip hud-net-chip war3-stone-panel" id="hud-net-chip" style="display:none;">云中继</span>
             <button class="war3-btn war3-btn-gold" id="btn-hud-pause" style="padding:4px 9px;font-size:12px;" title="暂停菜单">⏸</button>
           </div>
           <div class="hud-squad-col" id="hud-squad-col"></div>
@@ -503,6 +504,15 @@ export class HudUI {
     q('#hud-gold').textContent = `${Math.round(local.gold)}`;
     q('#hud-crystal').textContent = `${local.crystal}木`;
     q('#hud-stones').textContent = `${local.stones}石`;
+
+    const netChip = q('#hud-net-chip');
+    if (CoopManager.isActiveCoop()) {
+      netChip.style.display = 'inline-flex';
+      netChip.classList.toggle('is-p2p', CoopManager.hasDirectP2P());
+      netChip.textContent = CoopManager.getNetStatusLabel();
+    } else {
+      netChip.style.display = 'none';
+    }
 
     const comboEl = q('#hud-combo-badge');
     if (local.comboCount > 0 && local.comboTimer > 0) {

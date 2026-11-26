@@ -28,6 +28,13 @@ export class LobbyUI {
 
   public setTab(tab: LobbyTab): void {
     this.tab = tab;
+    if (tab === 'coop') {
+      CoopManager.ensurePublicDirectoryActive();
+    }
+  }
+
+  public isCoopTab(): boolean {
+    return this.tab === 'coop';
   }
 
   public render(): void {
@@ -278,6 +285,7 @@ export class LobbyUI {
     const lobby = CoopManager.lobby;
 
     if (!lobby) {
+      const publicRooms = CoopManager.getPublicRooms();
       return `
         <div class="lobby-inner-col">
           <div class="war3-card war3-stone-panel">
@@ -285,8 +293,8 @@ export class LobbyUI {
               <div class="card-title-with-ico">
                 <img src="${IconAtlas.getDataUrl('ui_ico_coop')}" alt="" />
                 <div>
-                  <strong>零服务器 WebRTC P2P + 云中继 1–4 人联机</strong>
-                  <div class="sub-muted">房主建房后分享 5 位房间码或邀请链接，支持手机/PC 跨端同屏守卫、装备与资源互赠。</div>
+                  <strong>零服务器 WebRTC 3通道 P2P + 云中继 1–4 人联机</strong>
+                  <div class="sub-muted">支持公开大厅一键快速匹配、战局中途空降支援与掉线 AI 托管重连归还。</div>
                 </div>
               </div>
               <div style="display:flex;gap:6px;align-items:center;">
@@ -300,15 +308,47 @@ export class LobbyUI {
           ${CoopManager.errorMsg ? `<div class="war3-card war3-stone-panel" style="border-color:#f43f5e;color:#fda4af;">连接失败：${CoopManager.errorMsg}</div>` : ''}
 
           <div class="coop-split-grid">
-            <div class="war3-card war3-stone-panel" style="display:flex;flex-direction:column;gap:10px;">
-              <strong style="color:#fde047;font-size:15px;">创建守城房间（房主）</strong>
-              <p style="margin:0;font-size:12px;color:#94a3b8;">创建 1–4 人协防房间，房主选择战区难度并控制怪物波次模拟，Boss 材料独立掉落。</p>
-              <button class="war3-btn war3-btn-gold" id="btn-create-room">创建 1–4 人联机房间</button>
+            <div class="war3-card war3-stone-panel" style="display:flex;flex-direction:column;gap:8px;">
+              <strong style="color:#fde047;font-size:15px;">快速开黑 / 创建守城房间</strong>
+              <p style="margin:0;font-size:12px;color:#94a3b8;">支持 1–4 人协防，Boss 材料全员独立掉落，队友断线由 AI 自动托管守城。</p>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="war3-btn war3-btn-green" id="btn-quick-match" style="flex:1;min-width:130px;">⚡ 一键快速匹配</button>
+                <button class="war3-btn war3-btn-gold" id="btn-create-room" style="flex:1;min-width:140px;">创建公开房间 (N${this.selectedDifficulty})</button>
+              </div>
             </div>
-            <div class="war3-card war3-stone-panel" style="display:flex;flex-direction:column;gap:10px;">
+            <div class="war3-card war3-stone-panel" style="display:flex;flex-direction:column;gap:8px;">
               <strong style="color:#38bdf8;font-size:15px;">输入房间码加入</strong>
               <input id="inp-room-code" class="war3-input" value="${this.joinCodeInput}" placeholder="输入 5 位房间码" maxlength="6" style="font-size:15px;letter-spacing:2px;text-transform:uppercase;border-color:#38bdf8;" />
               <button class="war3-btn war3-btn-blue" id="btn-join-room">加入好友小队</button>
+            </div>
+          </div>
+
+          <div class="war3-card war3-stone-panel">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+              <strong style="color:#4ade80;font-size:14px;">🌐 公开联机大厅 (${publicRooms.length} 房间在线)</strong>
+              <span style="font-size:11px;color:#94a3b8;">每 3 秒自动刷新可加入房</span>
+            </div>
+            <div class="coop-public-list">
+              ${
+                publicRooms.length === 0
+                  ? `<div class="coop-empty-slot">暂无公开房间，可点击上方【一键快速匹配】自动加入或新建公开房</div>`
+                  : publicRooms
+                      .map(
+                        (r) => `
+                  <div class="coop-public-row">
+                    <div>
+                      <span style="font-weight:800;color:#fde047;">[${r.roomCode}]</span>
+                      <span style="color:#f8fafc;font-weight:700;margin-left:6px;">房主 ${r.hostName}</span>
+                      <span style="font-size:11px;color:#38bdf8;margin-left:6px;">难度 N${r.difficulty} · ${r.inGame ? `第 ${r.wave} 波战斗中` : '等候发车'}</span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                      <span style="font-size:12px;color:#4ade80;font-weight:800;">${r.memberCount}/${r.maxMembers}</span>
+                      <button class="war3-btn war3-btn-blue" data-join-public="${r.roomCode}" style="padding:5px 12px;font-size:12px;">${r.inGame ? '中途加入' : '加入'}</button>
+                    </div>
+                  </div>`
+                      )
+                      .join('')
+              }
             </div>
           </div>
         </div>
@@ -327,6 +367,7 @@ export class LobbyUI {
             <span style="margin-left:10px;font-size:12px;color:#4ade80;">${CoopManager.getNetStatusLabel()}</span>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            ${isHost ? `<button class="war3-btn ${lobby.isPublic !== false ? 'war3-btn-green' : ''}" id="btn-toggle-public">${lobby.isPublic !== false ? '🌐 公开房间' : '🔒 仅限邀请'}</button>` : ''}
             <button class="war3-btn war3-btn-blue" id="btn-copy-link">复制邀请链接</button>
             <button class="war3-btn war3-btn-red" id="btn-leave-room">离开房间</button>
           </div>
@@ -583,7 +624,8 @@ export class LobbyUI {
   private bindEvents(): void {
     this.root.querySelectorAll('[data-tab]').forEach((el) => {
       (el as HTMLElement).onclick = () => {
-        this.tab = (el as HTMLElement).dataset.tab as LobbyTab;
+        const nextTab = (el as HTMLElement).dataset.tab as LobbyTab;
+        this.setTab(nextTab);
         this.render();
       };
     });
@@ -685,9 +727,20 @@ export class LobbyUI {
         this.render();
       };
     }
+    const btnQuick = this.root.querySelector('#btn-quick-match') as HTMLButtonElement | null;
+    if (btnQuick) {
+      btnQuick.onclick = () => CoopManager.quickMatchOrCreate(this.selectedDifficulty);
+    }
     const btnCreate = this.root.querySelector('#btn-create-room') as HTMLButtonElement | null;
     if (btnCreate) {
-      btnCreate.onclick = () => CoopManager.createHostRoom(this.selectedDifficulty);
+      btnCreate.onclick = () => CoopManager.createHostRoom(this.selectedDifficulty, true);
+    }
+    this.root.querySelectorAll('[data-join-public]').forEach((el) => {
+      (el as HTMLElement).onclick = () => CoopManager.joinRoomByCode((el as HTMLElement).dataset.joinPublic!);
+    });
+    const btnTogglePublic = this.root.querySelector('#btn-toggle-public') as HTMLButtonElement | null;
+    if (btnTogglePublic) {
+      btnTogglePublic.onclick = () => CoopManager.toggleHostPublicRoom();
     }
     const inpCode = this.root.querySelector('#inp-room-code') as HTMLInputElement | null;
     if (inpCode) {
@@ -726,7 +779,9 @@ export class LobbyUI {
     if (btnLaunchCoop) {
       btnLaunchCoop.onclick = () => {
         CoopManager.launchHostMatch();
-        this.onLaunchCoop();
+        if (this.root.querySelector('#btn-launch-coop')) {
+          this.onLaunchCoop();
+        }
       };
     }
     const btnReady = this.root.querySelector('#btn-toggle-ready') as HTMLButtonElement | null;
