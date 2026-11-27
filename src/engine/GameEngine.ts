@@ -229,9 +229,9 @@ export class GameEngine {
       maxWave: 20,
       endlessMode: false,
       waveState: 'prep',
-      wavePrepTimer: 16,
+      wavePrepTimer: 26,
       wavePauseCountUsed: 0,
-      maxWavePauses: 3,
+      maxWavePauses: 4,
       waveSpawnQueue: [],
       waveSpawnCooldown: 0,
       victory: false,
@@ -353,7 +353,7 @@ export class GameEngine {
   }): HeroEntity {
     const def = getHeroClassDef(opts.classId);
     const save = SaveManager.get();
-    const startGold = 200 + save.talents.startGold * 120 + (opts.difficulty >= 3 ? 100 : 0);
+    const startGold = 360 + save.talents.startGold * 120 + (opts.difficulty >= 3 ? 120 : 0);
     const spawnOff = HERO_FORMATION_OFFSETS[opts.slot % HERO_FORMATION_OFFSETS.length];
     const spawnPos = resolveWorldCollision(
       'sanctuary',
@@ -471,7 +471,7 @@ export class GameEngine {
     this.world.victory = false;
     this.settlementTriggered = false;
     this.world.waveState = 'prep';
-    this.world.wavePrepTimer = 14;
+    this.world.wavePrepTimer = 22;
     this.world.bannerText = '♾️ 已进入【无尽守卫模式】！每 5 波魔神再临，冲击极限排行榜！';
     this.world.bannerColor = '#c084fc';
     this.world.bannerTimer = 4.5;

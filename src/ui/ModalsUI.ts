@@ -112,11 +112,24 @@ export class ModalsUI {
     if (this.activeModal !== 'none') this.render();
   }
 
+  private syncSoloModalPause(): void {
+    const shouldPause =
+      this.activeModal === 'pause' ||
+      this.activeModal === 'awaken' ||
+      (!CoopManager.isActiveCoop() &&
+        (this.activeModal === 'shop' || this.activeModal === 'teleport' || this.activeModal === 'base'));
+    if (shouldPause) {
+      this.engine.paused = true;
+    } else if (this.activeModal === 'none' || this.activeModal === 'settlement') {
+      this.engine.paused = false;
+    }
+  }
+
   public close(): void {
     this.activeModal = 'none';
     this.modalEl?.remove();
     this.modalEl = null;
-    this.engine.paused = false;
+    this.syncSoloModalPause();
   }
 
   public toggleShop(): void {
@@ -131,6 +144,7 @@ export class ModalsUI {
         ? hero.pinnedRecipeId || getHeroRecommendedRecipeTargets(hero.classId)[0] || 'wep_t1'
         : 'wep_t1';
       this.lastShopLiveHash = '';
+      this.syncSoloModalPause();
       this.render();
     }
   }
@@ -151,6 +165,7 @@ export class ModalsUI {
       this.selectedShopItemId =
         hero.pinnedRecipeId || buildIds[idx] || getHeroRecommendedRecipeTargets(hero.classId)[0] || 'wep_t1';
     }
+    this.syncSoloModalPause();
     this.render();
   }
 
@@ -158,6 +173,7 @@ export class ModalsUI {
     if (this.activeModal === 'teleport') this.close();
     else {
       this.activeModal = 'teleport';
+      this.syncSoloModalPause();
       this.render();
     }
   }
@@ -166,6 +182,7 @@ export class ModalsUI {
     if (this.activeModal === 'base') this.close();
     else {
       this.activeModal = 'base';
+      this.syncSoloModalPause();
       this.render();
     }
   }
@@ -458,6 +475,7 @@ export class ModalsUI {
         <div class="modal-title-group">
           <img class="modal-head-ico" src="${IconAtlas.getDataUrl('ui_ico_shop')}" alt="" />
           <h2>局内商店</h2>
+          ${!CoopManager.isActiveCoop() ? '<span class="hok-pause-pill">⏸ 已自动暂停</span>' : ''}
           ${
             pinnedDef
               ? `<button class="hok-head-pin-chip" data-pin-id="${pinnedDef.id}" type="button" title="点击取消预购">

@@ -115,7 +115,7 @@ export function updateWaveDirector(
       world.waveSpawnCooldown -= dt;
       if (world.waveSpawnCooldown <= 0) {
         const waveDef = getWaveDef(world.wave);
-        const batch = Math.min(world.wave <= 2 ? 3 : 6, world.waveSpawnQueue.length);
+        const batch = Math.min(world.wave <= 2 ? 2 : world.wave <= 6 ? 3 : 4, world.waveSpawnQueue.length);
         for (let i = 0; i < batch; i++) {
           const item = world.waveSpawnQueue.shift()!;
           const lane = WAVE_LANES[item.laneId % WAVE_LANES.length];
@@ -137,7 +137,7 @@ export function updateWaveDirector(
             applyEnemyAffix(spawned, item.affix);
           }
         }
-        world.waveSpawnCooldown = world.wave <= 3 ? 0.92 : world.wave >= 8 ? 0.62 : 0.72;
+        world.waveSpawnCooldown = world.wave <= 3 ? 1.15 : world.wave >= 10 ? 0.85 : 0.98;
       }
     } else {
       const waveLeft = world.enemies.some(
@@ -151,8 +151,8 @@ export function updateWaveDirector(
         // Wave cleared!
         SaveManager.addDailyProgress('waves', 1);
         for (const h of world.heroes) {
-          h.gold += 80 + world.wave * 18;
-          if (world.wave % 3 === 0) h.crystal += 1;
+          h.gold += 110 + world.wave * 24;
+          if (world.wave % 2 === 0) h.crystal += 1;
         }
         if (world.wave === 20 && !world.endlessMode) {
           onStandardVictory();
@@ -162,7 +162,7 @@ export function updateWaveDirector(
         world.waveState = 'prep';
         world.wavePrepTimer = nextWave.prepSeconds;
         SoundFX.setBgmMode('combat');
-        world.bannerText = `✅ 第 ${world.wave} 波守卫成功！休整 ${Math.round(world.wavePrepTimer)} 秒（可前往练功房/秘境）`;
+        world.bannerText = `✅ 第 ${world.wave} 波守卫成功！休整 ${Math.round(world.wavePrepTimer)} 秒（可开商店配装 / 随时提前出怪）`;
         world.bannerColor = '#4ade80';
         world.bannerTimer = 3.5;
       }

@@ -580,7 +580,7 @@ export const WAVES: WaveDef[] = [
     groups: [{ kind: 'goblin', count: 24 }],
     hpMult: 1.0,
     dmgMult: 1.0,
-    prepSeconds: 18,
+    prepSeconds: 26,
   },
   {
     wave: 2,
@@ -592,7 +592,7 @@ export const WAVES: WaveDef[] = [
     ],
     hpMult: 1.25,
     dmgMult: 1.15,
-    prepSeconds: 16,
+    prepSeconds: 24,
   },
   {
     wave: 3,
@@ -605,7 +605,7 @@ export const WAVES: WaveDef[] = [
     ],
     hpMult: 1.55,
     dmgMult: 1.32,
-    prepSeconds: 16,
+    prepSeconds: 24,
   },
   {
     wave: 4,
@@ -618,7 +618,7 @@ export const WAVES: WaveDef[] = [
     ],
     hpMult: 1.9,
     dmgMult: 1.5,
-    prepSeconds: 16,
+    prepSeconds: 24,
   },
   {
     wave: 5,
@@ -631,7 +631,7 @@ export const WAVES: WaveDef[] = [
     boss: 'boss_skeleton_king',
     hpMult: 2.3,
     dmgMult: 1.7,
-    prepSeconds: 20,
+    prepSeconds: 30,
   },
   {
     wave: 6,
@@ -643,7 +643,7 @@ export const WAVES: WaveDef[] = [
     ],
     hpMult: 2.0,
     dmgMult: 1.35,
-    prepSeconds: 16,
+    prepSeconds: 25,
   },
   {
     wave: 7,
@@ -656,7 +656,7 @@ export const WAVES: WaveDef[] = [
     ],
     hpMult: 2.35,
     dmgMult: 1.45,
-    prepSeconds: 16,
+    prepSeconds: 25,
   },
   {
     wave: 8,
@@ -669,7 +669,7 @@ export const WAVES: WaveDef[] = [
     ],
     hpMult: 2.8,
     dmgMult: 1.55,
-    prepSeconds: 16,
+    prepSeconds: 25,
   },
   {
     wave: 9,
@@ -682,7 +682,7 @@ export const WAVES: WaveDef[] = [
     ],
     hpMult: 3.3,
     dmgMult: 1.7,
-    prepSeconds: 16,
+    prepSeconds: 25,
   },
   {
     wave: 10,
@@ -696,7 +696,7 @@ export const WAVES: WaveDef[] = [
     boss: 'boss_abyss_lord',
     hpMult: 3.8,
     dmgMult: 1.82,
-    prepSeconds: 22,
+    prepSeconds: 32,
   },
   {
     wave: 11,
@@ -709,7 +709,7 @@ export const WAVES: WaveDef[] = [
     ],
     hpMult: 4.5,
     dmgMult: 1.95,
-    prepSeconds: 16,
+    prepSeconds: 26,
   },
   {
     wave: 12,
@@ -721,7 +721,7 @@ export const WAVES: WaveDef[] = [
     ],
     hpMult: 5.3,
     dmgMult: 2.1,
-    prepSeconds: 16,
+    prepSeconds: 26,
   },
   {
     wave: 13,
@@ -734,7 +734,7 @@ export const WAVES: WaveDef[] = [
     ],
     hpMult: 6.2,
     dmgMult: 2.25,
-    prepSeconds: 16,
+    prepSeconds: 26,
   },
   {
     wave: 14,
@@ -747,7 +747,7 @@ export const WAVES: WaveDef[] = [
     ],
     hpMult: 7.4,
     dmgMult: 2.4,
-    prepSeconds: 16,
+    prepSeconds: 26,
   },
   {
     wave: 15,
@@ -760,7 +760,7 @@ export const WAVES: WaveDef[] = [
     boss: 'boss_frost_wyrm',
     hpMult: 8.6,
     dmgMult: 2.55,
-    prepSeconds: 24,
+    prepSeconds: 35,
   },
   {
     wave: 16,
@@ -772,7 +772,7 @@ export const WAVES: WaveDef[] = [
     ],
     hpMult: 10.2,
     dmgMult: 2.75,
-    prepSeconds: 16,
+    prepSeconds: 26,
   },
   {
     wave: 17,
@@ -785,7 +785,7 @@ export const WAVES: WaveDef[] = [
     ],
     hpMult: 12.2,
     dmgMult: 2.95,
-    prepSeconds: 16,
+    prepSeconds: 26,
   },
   {
     wave: 18,
@@ -798,7 +798,7 @@ export const WAVES: WaveDef[] = [
     ],
     hpMult: 14.8,
     dmgMult: 3.15,
-    prepSeconds: 16,
+    prepSeconds: 26,
   },
   {
     wave: 19,
@@ -811,7 +811,7 @@ export const WAVES: WaveDef[] = [
     ],
     hpMult: 17.5,
     dmgMult: 3.35,
-    prepSeconds: 18,
+    prepSeconds: 28,
   },
   {
     wave: 20,
@@ -824,7 +824,7 @@ export const WAVES: WaveDef[] = [
     boss: 'boss_doom_overlord',
     hpMult: 20.0,
     dmgMult: 3.6,
-    prepSeconds: 26,
+    prepSeconds: 38,
   },
 ];
 
@@ -855,6 +855,6 @@ export function getWaveDef(waveNum: number): WaveDef {
     boss: hasBoss ? bossPool[Math.floor((waveNum / 5) % bossPool.length)] : undefined,
     hpMult,
     dmgMult,
-    prepSeconds: 14,
+    prepSeconds: 22,
   };
 }
