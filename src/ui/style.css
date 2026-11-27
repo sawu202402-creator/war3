@@ -978,6 +978,33 @@ body {
   background: rgba(7, 10, 18, 0.9);
   border: 1px solid rgba(200, 162, 74, 0.48);
 }
+.coop-prehero-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+}
+.coop-prehero-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #cbd5e1;
+}
+.coop-hero-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+}
+.coop-hero-btn img {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  object-fit: cover;
+  border: 1px solid rgba(200, 162, 74, 0.45);
+}
 .coop-room-title-row {
   display: flex;
   gap: 6px;
@@ -1276,7 +1303,7 @@ body {
   line-height: 1.2;
 }
 .hok-pill-info {
-  width: 98px;
+  width: 114px;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -1338,8 +1365,8 @@ body {
 .hok-inv-dot {
   cursor: pointer;
   position: relative;
-  width: 14.5px;
-  height: 14.5px;
+  width: 17px;
+  height: 17px;
   padding: 0;
   border-radius: 3px;
   background: rgba(9, 13, 22, 0.92);
@@ -1765,6 +1792,9 @@ body {
 
 /* ==================== HONOR OF KINGS TOUCH WHEEL ==================== */
 .hok-wheel-root {
+  --safe-l: min(env(safe-area-inset-left, 0px), 28px);
+  --safe-r: min(env(safe-area-inset-right, 0px), 28px);
+  --safe-b: min(env(safe-area-inset-bottom, 0px), 16px);
   display: none;
   position: absolute;
   inset: 0;
@@ -1782,15 +1812,15 @@ body {
 .hok-move-stick {
   pointer-events: none;
   position: absolute;
-  left: max(18px, calc(env(safe-area-inset-left, 0px) + 14px));
-  bottom: max(16px, calc(env(safe-area-inset-bottom, 0px) + 14px));
-  width: 100px;
-  height: 100px;
+  left: calc(var(--safe-l) + 12px);
+  bottom: calc(var(--safe-b) + 12px);
+  width: 116px;
+  height: 116px;
   border-radius: 50%;
   border: 1.5px solid rgba(200, 162, 74, 0.56);
   background: radial-gradient(circle, rgba(15, 23, 42, 0.38) 54%, rgba(200, 162, 74, 0.22) 100%);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.52);
-  opacity: 0.78;
+  opacity: 0.82;
   transition: opacity 0.12s, box-shadow 0.12s, border-color 0.12s;
   touch-action: none;
 }
@@ -1814,10 +1844,10 @@ body {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 42px;
-  height: 42px;
-  margin-left: -21px;
-  margin-top: -21px;
+  width: 48px;
+  height: 48px;
+  margin-left: -24px;
+  margin-top: -24px;
   border-radius: 50%;
   border: 2px solid #fde68a;
   background: radial-gradient(circle at 35% 30%, rgba(245, 158, 11, 0.94), rgba(120, 53, 15, 0.94));
@@ -1828,14 +1858,14 @@ body {
 
 .hok-cancel-zone {
   position: absolute;
-  right: max(76px, calc(env(safe-area-inset-right, 0px) + 76px));
-  bottom: max(188px, calc(env(safe-area-inset-bottom, 0px) + 188px));
+  right: calc(var(--safe-r) + 92px);
+  bottom: calc(var(--safe-b) + 216px);
   padding: 8px 14px;
   border-radius: 999px;
   border: 2px dashed rgba(248, 113, 113, 0.75);
   background: rgba(127, 29, 29, 0.72);
   color: #fecaca;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 800;
   opacity: 0;
   pointer-events: none;
@@ -1853,22 +1883,22 @@ body {
 .hok-atk-btn {
   pointer-events: auto;
   position: absolute;
-  right: max(14px, calc(env(safe-area-inset-right, 0px) + 14px));
-  bottom: max(14px, calc(env(safe-area-inset-bottom, 0px) + 14px));
-  width: 74px;
-  height: 74px;
+  right: calc(var(--safe-r) + 12px);
+  bottom: calc(var(--safe-b) + 12px);
+  width: 86px;
+  height: 86px;
   border-radius: 50%;
   border: 2.5px solid #fde68a;
   background: radial-gradient(circle at 35% 30%, #f59e0b, #92400e 72%, #451a03 100%);
   color: #fffbeb;
   font-weight: 900;
-  font-size: 11.5px;
+  font-size: 13px;
   line-height: 1.05;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1px;
+  gap: 2px;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.7), 0 0 18px rgba(245, 158, 11, 0.45);
   touch-action: none;
   transition: transform 0.08s, box-shadow 0.08s;
@@ -1878,16 +1908,16 @@ body {
   box-shadow: 0 0 24px rgba(250, 204, 21, 0.85);
 }
 .hok-atk-btn img {
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   border: 1px solid #fef08a;
   pointer-events: none;
 }
 .hok-atk-auto-tag {
-  font-size: 8.5px;
+  font-size: 9.5px;
   font-weight: 800;
-  padding: 0 5px;
+  padding: 0 6px;
   border-radius: 999px;
   background: rgba(6, 78, 59, 0.94);
   color: #86efac;
@@ -1899,22 +1929,22 @@ body {
 .hok-prio-btn {
   pointer-events: auto;
   position: absolute;
-  right: max(174px, calc(env(safe-area-inset-right, 0px) + 174px));
-  bottom: max(68px, calc(env(safe-area-inset-bottom, 0px) + 68px));
-  padding: 3px 8px;
+  right: calc(var(--safe-r) + 180px);
+  bottom: calc(var(--safe-b) + 76px);
+  padding: 5px 10px;
   border-radius: 999px;
   border: 1.5px solid var(--war3-gold);
   background: rgba(15, 23, 42, 0.9);
   color: #fde68a;
-  font-size: 10px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 800;
   touch-action: manipulation;
 }
 
 .hok-skill-wrap {
   position: absolute;
-  width: 50px;
-  height: 50px;
+  width: 60px;
+  height: 60px;
   pointer-events: none;
 }
 .hok-skill-btn {
@@ -1963,10 +1993,10 @@ body {
   filter: grayscale(0.85) brightness(0.45);
 }
 
-.hok-s0 { right: max(98px, calc(env(safe-area-inset-right, 0px) + 98px)); bottom: max(14px, calc(env(safe-area-inset-bottom, 0px) + 14px)); }
-.hok-s1 { right: max(90px, calc(env(safe-area-inset-right, 0px) + 90px)); bottom: max(72px, calc(env(safe-area-inset-bottom, 0px) + 72px)); }
-.hok-s2 { right: max(54px, calc(env(safe-area-inset-right, 0px) + 54px)); bottom: max(126px, calc(env(safe-area-inset-bottom, 0px) + 126px)); }
-.hok-s3 { right: max(10px, calc(env(safe-area-inset-right, 0px) + 10px)); bottom: max(178px, calc(env(safe-area-inset-bottom, 0px) + 178px)); width: 54px; height: 54px; }
+.hok-s0 { right: calc(var(--safe-r) + 112px); bottom: calc(var(--safe-b) + 12px); }
+.hok-s1 { right: calc(var(--safe-r) + 98px); bottom: calc(var(--safe-b) + 80px); }
+.hok-s2 { right: calc(var(--safe-r) + 54px); bottom: calc(var(--safe-b) + 138px); }
+.hok-s3 { right: calc(var(--safe-r) + 12px); bottom: calc(var(--safe-b) + 198px); width: 64px; height: 64px; }
 .hok-s3 .hok-skill-btn { border-color: #f43f5e; }
 
 @keyframes skillUpPulse {
@@ -1998,16 +2028,16 @@ body {
 }
 .hok-skill-up {
   position: absolute;
-  width: 22px;
-  height: 22px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
-  font-size: 16px;
+  font-size: 18px;
   z-index: 6;
 }
-.hok-s0 .hok-skill-up { left: -16px; top: -18px; }
-.hok-s1 .hok-skill-up { left: -24px; top: 12px; }
-.hok-s2 .hok-skill-up { left: -24px; top: 12px; }
-.hok-s3 .hok-skill-up { left: -24px; top: 15px; }
+.hok-s0 .hok-skill-up { left: -14px; top: -18px; }
+.hok-s1 .hok-skill-up { left: -26px; top: 16px; }
+.hok-s2 .hok-skill-up { left: -26px; top: 16px; }
+.hok-s3 .hok-skill-up { left: -28px; top: 18px; }
 
 .skill-pip-bar {
   position: absolute;
@@ -2061,17 +2091,19 @@ body {
 }
 .hok-pts-pill {
   position: absolute;
-  right: max(12px, calc(env(safe-area-inset-right, 0px) + 12px));
-  bottom: max(240px, calc(env(safe-area-inset-bottom, 0px) + 240px));
+  right: calc(var(--safe-r) + 12px);
+  bottom: calc(var(--safe-b) + 270px);
+  padding: 3px 10px;
+  font-size: 11px;
 }
 
 .hok-flash-btn {
   pointer-events: auto;
   position: absolute;
-  right: max(156px, calc(env(safe-area-inset-right, 0px) + 156px));
-  bottom: max(14px, calc(env(safe-area-inset-bottom, 0px) + 14px));
-  width: 44px;
-  height: 44px;
+  right: calc(var(--safe-r) + 182px);
+  bottom: calc(var(--safe-b) + 12px);
+  width: 52px;
+  height: 52px;
   border-radius: 50%;
   border: 2px solid #38bdf8;
   background: #0f172a;
@@ -2094,7 +2126,7 @@ body {
   bottom: 0;
   background: rgba(4, 7, 14, 0.82);
   color: #7dd3fc;
-  font-size: 8.5px;
+  font-size: 9.5px;
   font-weight: 900;
   line-height: 1.25;
   text-align: center;
@@ -2104,21 +2136,21 @@ body {
 .hok-util-strip {
   pointer-events: auto;
   position: absolute;
-  right: max(206px, calc(env(safe-area-inset-right, 0px) + 206px));
-  bottom: max(14px, calc(env(safe-area-inset-bottom, 0px) + 14px));
+  right: calc(var(--safe-r) + 242px);
+  bottom: calc(var(--safe-b) + 12px);
   display: flex;
-  gap: 4px;
+  gap: 5px;
   align-items: center;
 }
 .hok-mini-btn {
   pointer-events: auto;
-  width: 40px;
-  height: 42px;
-  border-radius: 9px;
+  width: 48px;
+  height: 50px;
+  border-radius: 10px;
   border: 1.5px solid var(--war3-gold-dim);
   background: rgba(15, 23, 42, 0.92);
   color: #fef3c7;
-  font-size: 9.5px;
+  font-size: 10.5px;
   font-weight: 800;
   padding: 2px;
   position: relative;
@@ -2129,8 +2161,8 @@ body {
   touch-action: manipulation;
 }
 .hok-mini-btn img {
-  width: 21px;
-  height: 21px;
+  width: 24px;
+  height: 24px;
   border-radius: 4px;
   pointer-events: none;
 }
@@ -2144,31 +2176,34 @@ body {
   right: -4px;
   background: #0284c7;
   color: #fff;
-  font-size: 9px;
+  font-size: 9.5px;
   font-weight: 800;
-  padding: 1px 4px;
+  padding: 1px 5px;
   border-radius: 999px;
 }
 
 .hok-mid-tools {
   pointer-events: auto;
   position: absolute;
-  left: max(126px, calc(env(safe-area-inset-left, 0px) + 124px));
-  bottom: max(14px, calc(env(safe-area-inset-bottom, 0px) + 12px));
-  display: flex;
-  gap: 4px;
+  left: calc(var(--safe-l) + 136px);
+  bottom: calc(var(--safe-b) + 12px);
+  display: grid;
+  grid-template-columns: repeat(2, auto);
+  gap: 5px;
 }
 .hok-tool-btn {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 4px 6px;
-  font-size: 10.5px;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 10px;
+  min-height: 32px;
+  font-size: 11.5px;
   touch-action: manipulation;
 }
 .hok-tool-btn img {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   border-radius: 3px;
   pointer-events: none;
 }
@@ -2183,16 +2218,16 @@ body {
   font-size: 8.5px;
 }
 .is-touch-hud .hud-quickbuy-stack {
-  gap: 3px;
+  gap: 4px;
 }
 .is-touch-hud .quickbuy-btn {
-  padding: 3px 7px;
-  gap: 5px;
-  font-size: 10px;
+  padding: 5px 9px;
+  gap: 6px;
+  font-size: 11px;
 }
 .is-touch-hud .quickbuy-btn img {
-  width: 20px;
-  height: 20px;
+  width: 23px;
+  height: 23px;
 }
 .is-touch-hud .hud-squad-col {
   gap: 3px;
@@ -3692,8 +3727,16 @@ body {
     gap: 4px;
   }
   .diff-pill {
-    padding: 2px 8px;
-    font-size: 10.5px;
+    padding: 5px 10px;
+    font-size: 11.5px;
+  }
+  .coop-hero-btn {
+    padding: 5px 10px;
+    font-size: 12px;
+  }
+  .coop-pill-btn {
+    padding: 5px 10px;
+    font-size: 11.5px;
   }
   .ai-label {
     font-size: 10.5px;
@@ -4021,6 +4064,83 @@ body {
   .pc-act-btn {
     padding: 3px 5px;
     font-size: 10px;
+  }
+}
+
+/* iPhone 17 / Large Phone Landscape Ergonomic Control Boost */
+@media (min-width: 855px) and (min-height: 395px) {
+  .is-touch-hud .hok-move-stick {
+    width: 126px;
+    height: 126px;
+  }
+  .is-touch-hud .hok-stick-knob {
+    width: 54px;
+    height: 54px;
+    margin-left: -27px;
+    margin-top: -27px;
+  }
+  .is-touch-hud .hok-atk-btn {
+    width: 94px;
+    height: 94px;
+    font-size: 14px;
+  }
+  .is-touch-hud .hok-atk-btn img {
+    width: 32px;
+    height: 32px;
+  }
+  .is-touch-hud .hok-skill-wrap {
+    width: 66px;
+    height: 66px;
+  }
+  .is-touch-hud .hok-s0 { right: calc(var(--safe-r) + 120px); bottom: calc(var(--safe-b) + 12px); }
+  .is-touch-hud .hok-s1 { right: calc(var(--safe-r) + 106px); bottom: calc(var(--safe-b) + 86px); }
+  .is-touch-hud .hok-s2 { right: calc(var(--safe-r) + 58px); bottom: calc(var(--safe-b) + 148px); }
+  .is-touch-hud .hok-s3 { right: calc(var(--safe-r) + 12px); bottom: calc(var(--safe-b) + 214px); width: 70px; height: 70px; }
+  .is-touch-hud .hok-skill-up {
+    width: 30px;
+    height: 30px;
+    font-size: 19px;
+  }
+  .is-touch-hud .hok-pts-pill {
+    bottom: calc(var(--safe-b) + 292px);
+  }
+  .is-touch-hud .hok-flash-btn {
+    width: 56px;
+    height: 56px;
+    right: calc(var(--safe-r) + 196px);
+    bottom: calc(var(--safe-b) + 12px);
+  }
+  .is-touch-hud .hok-prio-btn {
+    right: calc(var(--safe-r) + 192px);
+    bottom: calc(var(--safe-b) + 82px);
+  }
+  .is-touch-hud .hok-util-strip {
+    right: calc(var(--safe-r) + 260px);
+    bottom: calc(var(--safe-b) + 12px);
+    gap: 6px;
+  }
+  .is-touch-hud .hok-mini-btn {
+    width: 52px;
+    height: 54px;
+    font-size: 11px;
+  }
+  .is-touch-hud .hok-mini-btn img {
+    width: 26px;
+    height: 26px;
+  }
+  .is-touch-hud .hok-mid-tools {
+    left: calc(var(--safe-l) + 146px);
+    bottom: calc(var(--safe-b) + 12px);
+    gap: 6px;
+  }
+  .is-touch-hud .hok-tool-btn {
+    padding: 7px 12px;
+    min-height: 35px;
+    font-size: 12.5px;
+  }
+  .is-touch-hud .hok-tool-btn img {
+    width: 17px;
+    height: 17px;
   }
 }
 

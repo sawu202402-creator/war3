@@ -233,6 +233,12 @@ async function bootstrap() {
     const dt = Math.min(0.05, Math.max(0, (now - lastTime) / 1000));
     lastTime = now;
 
+    const liveW = Math.max(1, Math.round(gameRoot.clientWidth || window.innerWidth));
+    const liveH = Math.max(1, Math.round(gameRoot.clientHeight || window.innerHeight));
+    if (liveW !== viewW || liveH !== viewH) {
+      syncViewport();
+    }
+
     if (inMatch && engine.world) {
       engine.update(dt, viewW, viewH);
       ctx.setTransform(currentDpr, 0, 0, currentDpr, 0, 0);

@@ -156,7 +156,7 @@ export class InputManager {
       const rect = this.canvas.getBoundingClientRect();
       this.mouseScreenX = e.clientX - rect.left;
       this.mouseScreenY = e.clientY - rect.top;
-      if (this.hudMode === 'auto') this.usingTouch = false;
+      if (this.hudMode === 'auto' && !this.detectTouchDevice()) this.usingTouch = false;
     });
 
     this.canvas.addEventListener('mousedown', (e) => {
@@ -314,10 +314,14 @@ export class InputManager {
 
   public detectTouchDevice(): boolean {
     if (typeof window === 'undefined') return false;
+    const ua = typeof navigator !== 'undefined' ? navigator.userAgent || '' : '';
+    const isMobileUa = /iPhone|iPad|iPod|Android|Mobile|HarmonyOS/i.test(ua);
     const hasTouch = navigator.maxTouchPoints > 0 || 'ontouchstart' in window;
     const isCoarseOrNarrow =
-      window.matchMedia('(pointer: coarse)').matches || Math.min(window.innerWidth, window.innerHeight) <= 560;
-    return hasTouch && isCoarseOrNarrow;
+      window.matchMedia('(pointer: coarse)').matches ||
+      window.matchMedia('(any-pointer: coarse)').matches ||
+      Math.min(window.innerWidth, window.innerHeight) <= 560;
+    return isMobileUa || (hasTouch && isCoarseOrNarrow);
   }
 
   public bindActions(handlers: {

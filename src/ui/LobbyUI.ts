@@ -544,6 +544,16 @@ export class LobbyUI {
                 <button class="war3-btn" id="btn-save-callsign">改名</button>
               </div>
             </div>
+            <div class="coop-prehero-bar">
+              <span class="coop-prehero-label">默认出战:</span>
+              ${HERO_CLASSES.map(
+                (h) => `
+                <button class="diff-pill coop-hero-btn ${save.selectedHero === h.id ? 'active' : ''}" data-pick-hero-coop="${h.id}" type="button">
+                  <img src="${IconAtlas.getDataUrl(`hero_${h.id}`)}" alt="" />
+                  <span>${h.name}</span>
+                </button>`
+              ).join('')}
+            </div>
           </div>
 
           ${CoopManager.status === 'connecting' ? `<div class="war3-card war3-stone-panel" style="color:#38bdf8;font-weight:700;">正在建立跨端联机通道，请稍候...</div>` : ''}
@@ -666,8 +676,9 @@ export class LobbyUI {
             <span style="font-size:12px;color:#cbd5e1;font-weight:700;">出战英雄:</span>
             ${HERO_CLASSES.map(
               (h) => `
-              <button class="diff-pill ${me?.heroClass === h.id ? 'active' : ''}" data-coop-hero="${h.id}">
-                ${h.name}
+              <button class="diff-pill coop-hero-btn ${me?.heroClass === h.id ? 'active' : ''}" data-coop-hero="${h.id}" type="button">
+                <img src="${IconAtlas.getDataUrl(`hero_${h.id}`)}" alt="" />
+                <span>${h.name}</span>
               </button>`
             ).join('')}
           </div>
@@ -1222,6 +1233,13 @@ export class LobbyUI {
         CoopManager.disconnect();
       };
     }
+    this.root.querySelectorAll('[data-pick-hero-coop]').forEach((el) => {
+      (el as HTMLElement).onclick = () => {
+        const id = (el as HTMLElement).dataset.pickHeroCoop as HeroClassId;
+        SaveManager.selectHero(id);
+        this.render();
+      };
+    });
     this.root.querySelectorAll('[data-coop-hero]').forEach((el) => {
       (el as HTMLElement).onclick = () => CoopManager.setMyHeroClass((el as HTMLElement).dataset.coopHero as HeroClassId);
     });

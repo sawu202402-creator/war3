@@ -84,6 +84,7 @@ class CoopNetworkManager {
   private hostMatchSeq = 0;
   private lastClientMatchSeq = 0;
   private hostCurrentWave = 1;
+  private pendingClientHeroSync: { heroClass: HeroClassId; until: number } | null = null;
 
   // Frame-burst snapshot coalescing buffers (prevents multi-parse stutters on mobile Wi-Fi)
   private pendingClientWorldRaw: string | null = null;
@@ -402,6 +403,7 @@ class CoopNetworkManager {
       this.dirBus?.send('*', { type: 'dir_close', roomCode: this.lobby.roomCode });
     }
     this.roomChatLog = [];
+    this.pendingClientHeroSync = null;
     window.clearInterval(this.heartbeatTimer);
     window.clearInterval(this.joinRetryTimer);
     for (const pid of Array.from(this.rtcPeers.keys())) this.closeRtcPeer(pid);
@@ -553,7 +555,11 @@ class CoopNetworkManager {
   }
 
   public setMyHeroClass(heroClass: HeroClassId): void {
-    if (!this.lobby) return;
+    SaveManager.selectHero(heroClass);
+    if (!this.lobby) {
+      this.notifyLobby();
+      return;
+    }
     const me = this.lobby.members.find((m) => m.peerId === this.myPeerId);
     if (!me) return;
     me.heroClass = heroClass;
@@ -561,7 +567,9 @@ class CoopNetworkManager {
       this.broadcastLobby();
       this.publishHostDirectoryState();
     } else {
-      this.sendToHost({ type: 'member_update', ready: me.ready, callsign: me.callsign, heroClass });
+      this.pendingClientHeroSync = { heroClass, until: performance.now() + 2800 };
+      const pkt: CoopNetMessage = { type: 'member_update', ready: me.ready, callsign: me.callsign, heroClass };
+      this.bus?.send(this.hostPeerId, pkt);
     }
     this.notifyLobby();
   }
@@ -833,17 +841,7 @@ class CoopNetworkManager {
     }
 
     if (msg.type === 'member_update') {
-      const mem = this.lobby.members.find((m) => m.peerId === fromId);
-      if (mem) {
-        const heroChanged = Boolean(msg.heroClass && mem.heroClass !== msg.heroClass);
-        const nameChanged = Boolean(msg.callsign && mem.callsign !== msg.callsign.slice(0, 12));
-        mem.ready = msg.ready;
-        if (msg.callsign) mem.callsign = msg.callsign.slice(0, 12);
-        if (msg.heroClass) mem.heroClass = msg.heroClass;
-        this.broadcastLobby();
-        if (heroChanged || nameChanged) this.publishHostDirectoryState();
-        this.notifyLobby();
-      }
+      this.applyHostMemberUpdate(fromId, msg);
       return;
     }
 
@@ -854,8 +852,29 @@ class CoopNetworkManager {
     }
   }
 
+  private applyHostMemberUpdate(
+    fromId: string,
+    msg: { type: 'member_update'; ready: boolean; callsign: string; heroClass: HeroClassId }
+  ): void {
+    if (!this.lobby) return;
+    const mem = this.lobby.members.find((m) => m.peerId === fromId);
+    if (!mem) return;
+    const heroChanged = Boolean(msg.heroClass && mem.heroClass !== msg.heroClass);
+    const nameChanged = Boolean(msg.callsign && mem.callsign !== msg.callsign.slice(0, 12));
+    mem.ready = msg.ready;
+    if (msg.callsign) mem.callsign = msg.callsign.slice(0, 12);
+    if (msg.heroClass) mem.heroClass = msg.heroClass;
+    this.broadcastLobby();
+    if (heroChanged || nameChanged) this.publishHostDirectoryState();
+    this.notifyLobby();
+  }
+
   private handleHostLobbyMsg(msg: CoopNetMessage, fromId: string): boolean {
     if (!this.lobby) return false;
+    if (msg.type === 'member_update') {
+      this.applyHostMemberUpdate(fromId, msg);
+      return true;
+    }
     if (msg.type === 'lobby_chat') {
       if (!this.clientLastSeen.has(fromId)) return true;
       const mem = this.lobby.members.find((m) => m.peerId === fromId);
@@ -968,6 +987,22 @@ class CoopNetworkManager {
         this.status = 'ready';
         this.mySlot = me.slot;
         this.lobby = msg.lobby;
+        if (this.pendingClientHeroSync) {
+          const mine = this.lobby.members.find((m) => m.peerId === this.myPeerId);
+          if (mine && mine.heroClass === this.pendingClientHeroSync.heroClass) {
+            this.pendingClientHeroSync = null;
+          } else if (mine && performance.now() < this.pendingClientHeroSync.until) {
+            mine.heroClass = this.pendingClientHeroSync.heroClass;
+            this.bus?.send(this.hostPeerId, {
+              type: 'member_update',
+              ready: mine.ready,
+              callsign: mine.callsign,
+              heroClass: mine.heroClass,
+            });
+          } else {
+            this.pendingClientHeroSync = null;
+          }
+        }
         if (wasConnecting) this.startHeartbeatLoop();
         const lobSeq = this.lobby.matchSeq || 1;
         if (this.lobby.inGame && !this.inMatchTriggered && lobSeq > this.lastClientMatchSeq) {
@@ -1283,6 +1318,7 @@ class CoopNetworkManager {
       msg.type === 'start_game' ||
       msg.type === 'join_req' ||
       msg.type === 'join_ack' ||
+      msg.type === 'member_update' ||
       msg.type === 'lobby_chat' ||
       msg.type === 'room_kick'
     ) {
