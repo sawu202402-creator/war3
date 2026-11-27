@@ -36,7 +36,7 @@ function createDefaultSave(): SaveData {
     callsign: `圣殿勇者-${Math.floor(10 + Math.random() * 89)}`,
     honorCoins: 240,
     selectedHero: 'blademaster',
-    unlockedHeroes: ['paladin', 'blademaster', 'archmage'],
+    unlockedHeroes: ['paladin', 'blademaster', 'archmage', 'ranger', 'priest'],
     maxClearedDifficulty: 0,
     bestEndlessWave: {},
     heroMasteryXp: {
@@ -87,7 +87,7 @@ class SaveDataManager {
           heroMasteryXp: { ...def.heroMasteryXp, ...(parsed.heroMasteryXp || {}) },
           daily: { ...def.daily, ...(parsed.daily || {}) },
           unlockedHeroes: Array.isArray(parsed.unlockedHeroes) && parsed.unlockedHeroes.length > 0
-            ? (Array.from(new Set(['paladin', 'blademaster', 'archmage', ...parsed.unlockedHeroes])) as HeroClassId[])
+            ? (Array.from(new Set(['paladin', 'blademaster', 'archmage', 'ranger', 'priest', ...parsed.unlockedHeroes])) as HeroClassId[])
             : def.unlockedHeroes,
           discoveredItems: Array.isArray(parsed.discoveredItems) ? parsed.discoveredItems : [],
           defeatedBosses: Array.isArray(parsed.defeatedBosses) ? parsed.defeatedBosses : [],
@@ -134,6 +134,10 @@ class SaveDataManager {
   }
 
   public selectHero(id: HeroClassId): void {
+    const def = getHeroClassDef(id);
+    if (def.unlockCost === 0 && !this.data.unlockedHeroes.includes(id)) {
+      this.data.unlockedHeroes.push(id);
+    }
     if (this.data.unlockedHeroes.includes(id)) {
       this.data.selectedHero = id;
       this.save();

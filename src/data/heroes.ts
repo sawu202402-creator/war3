@@ -478,7 +478,7 @@ export const HERO_CLASSES: HeroClassDef[] = [
     attackType: 'ranged',
     color: '#4ade80',
     auraColor: 'rgba(74, 222, 128, 0.52)',
-    unlockCost: 300,
+    unlockCost: 0,
     baseStats: {
       maxHp: 510,
       maxMp: 240,
@@ -611,7 +611,7 @@ export const HERO_CLASSES: HeroClassDef[] = [
     attackType: 'ranged',
     color: '#c084fc',
     auraColor: 'rgba(192, 132, 252, 0.55)',
-    unlockCost: 300,
+    unlockCost: 0,
     baseStats: {
       maxHp: 580,
       maxMp: 360,
